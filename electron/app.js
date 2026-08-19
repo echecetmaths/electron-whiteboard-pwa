@@ -1615,13 +1615,13 @@ function endPinchIfActive() {
   lastPinchMid = null;
 }
 
+// Capture phase, so this always runs before onPointerDown's own (bubble-phase) listener above —
+// by the time a second finger's onPointerDown handler checks activeTouchPointers.size, this has
+// already recorded it and cancelled whatever the first finger started.
 canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType !== 'touch') return;
   activeTouchPointers.set(e.pointerId, getPointerPos(e));
   if (activeTouchPointers.size === 2) {
-    // A second finger just landed — the first finger's pointerdown already ran through the
-    // normal single-pointer flow above (e.g. started a stroke); abandon that in favor of the
-    // pinch gesture rather than drawing and zooming at the same time.
     if (drag && drag.holdTimerId) clearTimeout(drag.holdTimerId);
     if (drag && drag.animFrameId) cancelAnimationFrame(drag.animFrameId);
     drag = null;
@@ -1630,7 +1630,7 @@ canvas.addEventListener('pointerdown', (e) => {
     lastPinchMid = null;
     render();
   }
-});
+}, true);
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.pointerType !== 'touch' || !activeTouchPointers.has(e.pointerId)) return;
@@ -1824,6 +1824,9 @@ function startEdgeScrollLoop() {
 }
 
 function onPointerDown(e) {
+  // A second (or later) touch finger joining mid-pinch shouldn't also start its own draw/drag —
+  // the capture-phase pinch listener below has already recorded it by the time this runs.
+  if (e.pointerType === 'touch' && activeTouchPointers.size >= 2) return;
   if (editingEl) { closeEditor(true); }
   canvas.setPointerCapture(e.pointerId);
   const pos = getPointerPos(e);
