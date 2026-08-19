@@ -2850,6 +2850,9 @@ const screenExplainerEl = document.getElementById('subscribe-screen-explainer');
 const screenManageEl = document.getElementById('subscribe-screen-manage');
 const screenSettingsEl = document.getElementById('subscribe-screen-settings');
 const manageStatusEl = document.getElementById('manage-status');
+const btnManageChangeEmailEl = document.getElementById('btn-manage-change-email');
+const manageChangeEmailRowEl = document.getElementById('manage-change-email-row');
+const manageChangeEmailInputEl = document.getElementById('manage-change-email-input');
 
 const pdfPrefsHeaderTextEl = document.getElementById('pdf-prefs-header-text');
 const pdfPrefsFooterTextEl = document.getElementById('pdf-prefs-footer-text');
@@ -2923,6 +2926,8 @@ async function openSubscribeModal(context) {
 
   subscribeTitleEl.textContent = 'Gérer mon abonnement';
   showSubscribeScreen('manage');
+  manageChangeEmailRowEl.classList.add('hidden');
+  manageChangeEmailInputEl.value = '';
   manageStatusEl.textContent = 'Chargement...';
   const res = await window.api.getSubscriptionDetails(s.email);
   if (res && res.ok && res.active) {
@@ -2953,20 +2958,28 @@ async function verifySubscriptionByEmail(email) {
   const res = await window.api.checkSubscription(email);
   if (!res || !res.ok) {
     subscribeStatusEl.textContent = 'Impossible de vérifier (hors ligne ou serveur indisponible). Réessaie plus tard.';
+    flashStatus('Vérification impossible (hors ligne ?)');
     return;
   }
   state.settings = await window.api.getSettings();
   updateSubscribeButton();
-  if (state.settings.subscriptionActive) {
-    flashStatus('Abonnement activé !');
-    openSubscribeModal('star');
-  } else {
-    subscribeStatusEl.textContent = 'Aucun abonnement actif pour cet email.';
-  }
+  if (state.settings.subscriptionActive) flashStatus('Abonnement activé !');
+  // Always re-render via the modal (rather than just updating subscribeStatusEl) so a check
+  // started from the manage screen's "changer d'email" row — where the explainer's status text
+  // is hidden — still shows its result, on the explainer or manage screen as appropriate.
+  openSubscribeModal('star');
 }
 
 document.getElementById('btn-subscribe-verify').addEventListener('click', () => {
   verifySubscriptionByEmail(subscribeEmailEl.value.trim());
+});
+
+btnManageChangeEmailEl.addEventListener('click', () => {
+  manageChangeEmailRowEl.classList.toggle('hidden');
+  if (!manageChangeEmailRowEl.classList.contains('hidden')) manageChangeEmailInputEl.focus();
+});
+document.getElementById('btn-manage-change-email-verify').addEventListener('click', () => {
+  verifySubscriptionByEmail(manageChangeEmailInputEl.value.trim());
 });
 
 document.getElementById('btn-subscribe-monthly').addEventListener('click', () => window.api.openPayment('monthly'));

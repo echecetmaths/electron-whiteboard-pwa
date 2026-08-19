@@ -735,12 +735,12 @@ html, body {
   color: var(--text-dim);
   margin-bottom: 4px;
 }
-#subscribe-email-row {
+.subscribe-email-row {
   display: flex;
   gap: 6px;
   margin-bottom: 14px;
 }
-#subscribe-email {
+.subscribe-email-row input {
   flex: 1;
   padding: 8px 10px;
   border-radius: 8px;
@@ -749,7 +749,7 @@ html, body {
   color: var(--text);
   font-size: 13px;
 }
-#subscribe-email-row button {
+.subscribe-email-row button {
   padding: 8px 12px;
   border-radius: 8px;
   border: none;
@@ -759,7 +759,19 @@ html, body {
   font-size: 12px;
   white-space: nowrap;
 }
-#subscribe-email-row button:hover { background: var(--text-dim); color: var(--panel); }
+.subscribe-email-row button:hover { background: var(--text-dim); color: var(--panel); }
+.subscribe-link-btn {
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  display: block;
+}
+.subscribe-link-btn:hover { color: var(--text); }
 #subscribe-plans {
   display: flex;
   flex-direction: column;

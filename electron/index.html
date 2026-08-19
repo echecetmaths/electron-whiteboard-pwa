@@ -229,7 +229,7 @@
           </div>
 
           <label class="subscribe-label" for="subscribe-email">Email utilisé lors du paiement</label>
-          <div id="subscribe-email-row">
+          <div id="subscribe-email-row" class="subscribe-email-row">
             <input type="email" id="subscribe-email" placeholder="toi@exemple.com">
             <button id="btn-subscribe-verify">Vérifier</button>
           </div>
@@ -246,6 +246,11 @@
         <div id="subscribe-screen-manage" class="hidden">
           <p id="manage-status">Chargement...</p>
           <button id="btn-manage-portal" class="subscribe-plan-btn">Gérer mon abonnement (Stripe)</button>
+          <button id="btn-manage-change-email" class="subscribe-link-btn">Utiliser un autre email</button>
+          <div id="manage-change-email-row" class="subscribe-email-row hidden">
+            <input type="email" id="manage-change-email-input" placeholder="nouvel-email@exemple.com">
+            <button id="btn-manage-change-email-verify">Vérifier</button>
+          </div>
         </div>
 
         <!-- Subscribed, opened via the gear button: editable export settings -->
