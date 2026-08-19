@@ -10,6 +10,8 @@ const APP_SHELL = [
   './pdf-export.js',
   './pdf-lib.min.js',
   './register-sw.js',
+  './payment-success.html',
+  './payment-success.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

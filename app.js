@@ -1598,6 +1598,74 @@ canvas.addEventListener('dblclick', onDblClick);
 canvas.addEventListener('wheel', onWheel, { passive: false });
 canvas.addEventListener('contextmenu', e => e.preventDefault());
 
+// ---------- Pinch-to-zoom (two-finger touch) ----------
+// Runs independently of the single-pointer drag/draw flow above (mouse and pen never trigger
+// this — only pointerType 'touch'). The wheel handler already covers trackpad/mouse zoom, this
+// is its touchscreen equivalent.
+const activeTouchPointers = new Map();
+let lastPinchDist = null;
+let lastPinchMid = null;
+
+function touchDist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function touchMid(a, b) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
+
+function endPinchIfActive() {
+  if (lastPinchDist === null) return;
+  lastPinchDist = null;
+  lastPinchMid = null;
+}
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch') return;
+  activeTouchPointers.set(e.pointerId, getPointerPos(e));
+  if (activeTouchPointers.size === 2) {
+    // A second finger just landed — the first finger's pointerdown already ran through the
+    // normal single-pointer flow above (e.g. started a stroke); abandon that in favor of the
+    // pinch gesture rather than drawing and zooming at the same time.
+    if (drag && drag.holdTimerId) clearTimeout(drag.holdTimerId);
+    if (drag && drag.animFrameId) cancelAnimationFrame(drag.animFrameId);
+    drag = null;
+    drawingObj = null;
+    lastPinchDist = null;
+    lastPinchMid = null;
+    render();
+  }
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType !== 'touch' || !activeTouchPointers.has(e.pointerId)) return;
+  activeTouchPointers.set(e.pointerId, getPointerPos(e));
+  if (activeTouchPointers.size !== 2) return;
+  const pts = [...activeTouchPointers.values()];
+  const dist = touchDist(pts[0], pts[1]);
+  const mid = touchMid(pts[0], pts[1]);
+  if (lastPinchMid) {
+    state.viewport.panX += mid.x - lastPinchMid.x;
+    state.viewport.panY += mid.y - lastPinchMid.y;
+  }
+  if (lastPinchDist) {
+    const factor = dist / lastPinchDist;
+    const newZoom = Math.min(8, Math.max(0.05, state.viewport.zoom * factor));
+    const before = screenToWorld(mid.x, mid.y);
+    state.viewport.zoom = newZoom;
+    const after = worldToScreen(before.x, before.y);
+    state.viewport.panX += mid.x - after.x;
+    state.viewport.panY += mid.y - after.y;
+  }
+  lastPinchDist = dist;
+  lastPinchMid = mid;
+  render();
+});
+
+function releaseTouchPointer(e) {
+  if (e.pointerType !== 'touch') return;
+  activeTouchPointers.delete(e.pointerId);
+  if (activeTouchPointers.size < 2) endPinchIfActive();
+}
+canvas.addEventListener('pointerup', releaseTouchPointer);
+canvas.addEventListener('pointercancel', releaseTouchPointer);
+window.addEventListener('pointerup', releaseTouchPointer);
+
 function svgCursorUrl(svgBody, hx, hy) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24">${svgBody}</svg>`;
   const b64 = btoa(unescape(encodeURIComponent(svg)));

@@ -1533,3 +1533,13 @@ html, body {
 /* Scrollbar */
 #board-list::-webkit-scrollbar { width: 8px; }
 #board-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* Touch targets: inert on desktop (mouse is a "fine" pointer, this media query never matches),
+   only kicks in for real touchscreens — the tablet PWA and desktop share this file as-is. */
+@media (pointer: coarse) {
+  .icon-btn, .tool-btn { width: 40px; height: 40px; }
+  #bottom-toolbar .tool-btn { width: 46px; height: 46px; }
+  .icon-btn svg, .tool-btn svg, .flyout-btn svg, #zoom-pill button svg { width: 20px; height: 20px; }
+  .board-menu-btn { padding: 8px 10px; }
+  .shortcut-key-btn { min-width: 42px; padding: 8px 10px; }
+}
