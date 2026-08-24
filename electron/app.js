@@ -2932,7 +2932,10 @@ async function openSubscribeModal(context) {
   const res = await window.api.getSubscriptionDetails(s.email);
   if (res && res.ok && res.active) {
     state.settings = await window.api.getSettings();
-    const planLabel = res.interval === 'year' ? '10€ / an' : '1€ / mois';
+    // Built from the live Stripe amount rather than a hardcoded string, which had silently gone
+    // stale (still showing 1€/10€) through an earlier price change to 2,99€/29,99€.
+    const planAmount = typeof res.amount === 'number' ? (res.amount / 100).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '?';
+    const planLabel = `${planAmount}€ / ${res.interval === 'year' ? 'an' : 'mois'}`;
     const renewDate = res.currentPeriodEnd ? new Date(res.currentPeriodEnd * 1000).toLocaleDateString('fr-FR') : '?';
     manageStatusEl.innerHTML = `Formule : <strong>${planLabel}</strong><br>` + (
       res.cancelAtPeriodEnd

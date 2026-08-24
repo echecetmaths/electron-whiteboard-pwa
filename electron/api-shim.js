@@ -10,8 +10,8 @@
   // payment-success.html instead of echecetmaths.com, since only a same-origin landing page lets
   // this shim detect completion at all (a plain window.open() popup can't be inspected once it
   // navigates to Stripe's cross-origin checkout, unlike the desktop app's BrowserWindow).
-  const STRIPE_PAYMENT_LINK_MONTHLY = 'https://buy.stripe.com/dRmaEX29j35p16K4n32sM1d'; // 2,99€ / mois
-  const STRIPE_PAYMENT_LINK_YEARLY = 'https://buy.stripe.com/7sY14n7tDfSb7v88Dj2sM1e'; // 29,99€ / an
+  const STRIPE_PAYMENT_LINK_MONTHLY = 'https://buy.stripe.com/aFaeVd9BL9tNg1EcTz2sM1i'; // 4,99€ / mois
+  const STRIPE_PAYMENT_LINK_YEARLY = 'https://buy.stripe.com/dRm3cv7tD7lF16K3iZ2sM1j'; // 49,99€ / an
   const DEFAULT_FOOTER_TEXT = 'Propulsé par Echec & Maths - Cours particuliers';
 
   // ---------- IndexedDB ----------
