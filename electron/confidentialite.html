@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Politique de confidentialité — Electron</title>
+<style>
+  :root {
+    --bg: #1a1a1a;
+    --panel: #232326;
+    --card: #26262b;
+    --border: #38383e;
+    --text: #f0f0f2;
+    --text-dim: #a0a0a8;
+    --accent: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.7;
+  }
+  header {
+    padding: 48px 6vw 32px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .logo .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 0 12px rgba(255,255,255,0.6);
+  }
+  .subtitle {
+    margin-top: 10px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  main {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 40px 6vw 80px;
+  }
+  h2 {
+    font-size: 20px;
+    margin-top: 40px;
+    margin-bottom: 12px;
+    color: var(--accent);
+  }
+  h2:first-of-type { margin-top: 0; }
+  p, li {
+    color: var(--text-dim);
+    font-size: 15px;
+  }
+  strong { color: var(--text); }
+  ul { padding-left: 20px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .updated {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  a { color: #fff; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="dot"></span>Electron</div>
+  <div class="subtitle">Politique de confidentialité</div>
+</header>
+
+<main>
+  <h2>Aucun compte, aucune collecte par défaut</h2>
+  <p>Electron est une application locale : tes tableaux (dessins, textes, formes, notes) sont enregistrés uniquement sur ton appareil. Nous n'avons pas accès à leur contenu et ne les transmettons à aucun serveur.</p>
+
+  <h2>Ce qui est collecté — uniquement si tu t'abonnes</h2>
+  <div class="card">
+    <p>Si tu actives l'abonnement de personnalisation d'export PDF, la seule donnée personnelle traitée est <strong>l'adresse email</strong> que tu utilises pour vérifier ou gérer ton abonnement. Elle sert exclusivement à :</p>
+    <ul>
+      <li>vérifier l'état de ton abonnement auprès de Stripe (notre prestataire de paiement) ;</li>
+      <li>te permettre d'accéder au portail de gestion de ton abonnement.</li>
+    </ul>
+    <p>Le paiement lui-même est traité directement par <a href="https://stripe.com/fr/privacy" target="_blank" rel="noopener">Stripe</a>, qui applique sa propre politique de confidentialité. Nous ne stockons ni ne voyons jamais tes coordonnées bancaires.</p>
+  </div>
+
+  <h2>Ce que nous ne faisons pas</h2>
+  <ul>
+    <li>Pas de suivi publicitaire ni de revente de données</li>
+    <li>Pas de compte utilisateur ni de mot de passe</li>
+    <li>Pas de synchronisation cloud de tes tableaux</li>
+    <li>Pas de collecte de données au-delà de l'email lié à l'abonnement</li>
+  </ul>
+
+  <h2>Conservation et suppression</h2>
+  <p>Tes tableaux restent sur ton appareil tant que tu ne les supprimes pas toi-même. L'email lié à un abonnement est conservé le temps de l'abonnement actif ; pour en demander la suppression, contacte-nous à l'adresse ci-dessous.</p>
+
+  <h2>Contact</h2>
+  <p>Pour toute question sur cette politique ou tes données, écris-nous à <a href="mailto:echecetmaths.coursparticuliers@hotmail.com">echecetmaths.coursparticuliers@hotmail.com</a> ou visite <a href="https://echecetmaths.com" target="_blank" rel="noopener">echecetmaths.com</a>.</p>
+
+  <p class="updated">Dernière mise à jour : août 2026</p>
+</main>
+
+</body>
+</html>
