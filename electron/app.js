@@ -278,7 +278,9 @@ function drawAxisLabel(c, tipX, tipY, dx, dy, text) {
   c.restore();
 }
 
-function drawGraduatedAxis(c, cx, cy, dx, dy, len, tickCount, tickLen, showNumbers) {
+// `maxValue` is the graduation value shown at the axis tip (entering 4 draws -4..4) — not a
+// total tick count — so it's used directly as the half-length, with no /2 conversion.
+function drawGraduatedAxis(c, cx, cy, dx, dy, len, maxValue, tickLen, showNumbers) {
   const ex = cx + dx * len, ey = cy + dy * len;
   c.beginPath();
   c.moveTo(cx - dx * len, cy - dy * len);
@@ -286,10 +288,10 @@ function drawGraduatedAxis(c, cx, cy, dx, dy, len, tickCount, tickLen, showNumbe
   c.stroke();
   drawSmallArrowAt(c, ex, ey, Math.atan2(dy, dx));
   const px = -dy, py = dx;
-  const half = Math.max(1, Math.round(tickCount / 2));
+  const half = Math.max(1, Math.round(maxValue));
   c.beginPath();
   for (let i = -half; i <= half; i++) {
-    if (i === 0 || Math.abs(i) === half) continue;
+    if (i === 0) continue;
     const t = i / half;
     const tx = cx + dx * len * t, ty = cy + dy * len * t;
     c.moveTo(tx - px * tickLen, ty - py * tickLen);
@@ -303,24 +305,30 @@ function drawGraduatedAxis(c, cx, cy, dx, dy, len, tickCount, tickLen, showNumbe
     c.textAlign = 'center';
     c.textBaseline = 'middle';
     const labelOff = tickLen * 2.4;
-    for (let i = 1; i < half; i++) {
+    for (let i = 1; i <= half; i++) {
       const t = i / half;
       let tx = cx + dx * len * t, ty = cy + dy * len * t;
       c.fillText(String(i), tx + px * labelOff, ty + py * labelOff);
       tx = cx - dx * len * t; ty = cy - dy * len * t;
-      c.fillText(String(i), tx + px * labelOff, ty + py * labelOff);
+      c.fillText(String(-i), tx + px * labelOff, ty + py * labelOff);
     }
     c.restore();
   }
 }
 
+// Reads the per-axis graduation value, falling back to the old shared `tickCount` for boards
+// saved before axes had independent per-axis graduations.
+function axisMaxValue(obj, axisLetter) {
+  const perAxis = obj[`tickCount${axisLetter}`];
+  return perAxis != null ? perAxis : (obj.tickCount || 10);
+}
+
 function drawAxes2D(c, obj) {
   const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
   c.strokeStyle = obj.color; c.lineWidth = 1.5; c.lineCap = 'round'; c.lineJoin = 'round';
-  const ticks = obj.tickCount || 20;
   const showNumbers = !!obj.showNumbers;
-  drawGraduatedAxis(c, cx, cy, 1, 0, obj.w / 2, ticks, 5, showNumbers);
-  drawGraduatedAxis(c, cx, cy, 0, -1, obj.h / 2, ticks, 5, showNumbers);
+  drawGraduatedAxis(c, cx, cy, 1, 0, obj.w / 2, axisMaxValue(obj, 'X'), 5, showNumbers);
+  drawGraduatedAxis(c, cx, cy, 0, -1, obj.h / 2, axisMaxValue(obj, 'Y'), 5, showNumbers);
   drawAxisLabel(c, cx + obj.w / 2, cy, 1, 0, 'x');
   drawAxisLabel(c, cx, cy - obj.h / 2, 0, -1, 'y');
 }
@@ -329,13 +337,12 @@ function drawAxes3D(c, obj) {
   const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
   c.strokeStyle = obj.color; c.lineWidth = 1.5; c.lineCap = 'round'; c.lineJoin = 'round';
   const len = Math.min(obj.w, obj.h) / 2;
-  const ticks = obj.tickCount || 20;
   const showNumbers = !!obj.showNumbers;
   const zAngle = -210 * Math.PI / 180;
   const zdx = Math.cos(zAngle), zdy = Math.sin(zAngle);
-  drawGraduatedAxis(c, cx, cy, 1, 0, len, ticks, 4, showNumbers);
-  drawGraduatedAxis(c, cx, cy, 0, -1, len, ticks, 4, showNumbers);
-  drawGraduatedAxis(c, cx, cy, zdx, zdy, len * 0.85, ticks, 4, showNumbers);
+  drawGraduatedAxis(c, cx, cy, 1, 0, len, axisMaxValue(obj, 'X'), 4, showNumbers);
+  drawGraduatedAxis(c, cx, cy, 0, -1, len, axisMaxValue(obj, 'Y'), 4, showNumbers);
+  drawGraduatedAxis(c, cx, cy, zdx, zdy, len * 0.85, axisMaxValue(obj, 'Z'), 4, showNumbers);
   drawAxisLabel(c, cx + len, cy, 1, 0, 'x');
   drawAxisLabel(c, cx, cy - len, 0, -1, 'y');
   drawAxisLabel(c, cx + zdx * len * 0.85, cy + zdy * len * 0.85, zdx, zdy, 'z');
@@ -1257,7 +1264,7 @@ function insertAxes2D() {
   pushHistory();
   const center = screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
   const w = 320, h = 320;
-  const obj = { id: uid(), type: 'axes2d', x: center.x - w / 2, y: center.y - h / 2, w, h, color: mathObjectColor(), tickCount: 20, showNumbers: false };
+  const obj = { id: uid(), type: 'axes2d', x: center.x - w / 2, y: center.y - h / 2, w, h, color: mathObjectColor(), tickCountX: 10, tickCountY: 10, showNumbers: false };
   state.objects.push(obj);
   setTool('select');
   state.selection = [obj];
@@ -1268,7 +1275,7 @@ function insertAxes3D() {
   pushHistory();
   const center = screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
   const w = 340, h = 340;
-  const obj = { id: uid(), type: 'axes3d', x: center.x - w / 2, y: center.y - h / 2, w, h, color: mathObjectColor(), tickCount: 20, showNumbers: false };
+  const obj = { id: uid(), type: 'axes3d', x: center.x - w / 2, y: center.y - h / 2, w, h, color: mathObjectColor(), tickCountX: 10, tickCountY: 10, tickCountZ: 10, showNumbers: false };
   state.objects.push(obj);
   setTool('select');
   state.selection = [obj];
@@ -2476,29 +2483,36 @@ function buildSelectionToolbar() {
 
   if (state.selection.length === 1 && ['axes2d', 'axes3d'].includes(state.selection[0].type)) {
     const obj = state.selection[0];
-    if (obj.tickCount == null) obj.tickCount = 20;
-    const applyTicks = (n) => {
-      pushHistory();
-      obj.tickCount = Math.max(2, Math.min(60, Math.round(n / 2) * 2));
-      numInput.value = obj.tickCount;
-      render(); scheduleSave();
-    };
-    const stepper = document.createElement('div');
-    stepper.className = 'sel-stepper';
-    const minus = document.createElement('button');
-    minus.textContent = '−'; minus.title = 'Moins de graduations';
-    minus.addEventListener('click', () => applyTicks(obj.tickCount - 2));
-    const numInput = document.createElement('input');
-    numInput.type = 'number'; numInput.className = 'sel-tick-input';
-    numInput.min = '2'; numInput.max = '60'; numInput.step = '2';
-    numInput.value = obj.tickCount;
-    numInput.title = 'Nombre de graduations par axe';
-    numInput.addEventListener('change', () => applyTicks(parseInt(numInput.value, 10) || 20));
-    const plus = document.createElement('button');
-    plus.textContent = '+'; plus.title = 'Plus de graduations';
-    plus.addEventListener('click', () => applyTicks(obj.tickCount + 2));
-    stepper.appendChild(minus); stepper.appendChild(numInput); stepper.appendChild(plus);
-    selToolbar.appendChild(stepper);
+    const axisNames = obj.type === 'axes3d' ? ['X', 'Y', 'Z'] : ['X', 'Y'];
+    axisNames.forEach((axisName) => {
+      const key = `tickCount${axisName}`;
+      if (obj[key] == null) obj[key] = obj.tickCount || 10;
+      const applyTicks = (n) => {
+        pushHistory();
+        obj[key] = Math.max(1, Math.min(30, Math.round(n)));
+        numInput.value = obj[key];
+        render(); scheduleSave();
+      };
+      const stepper = document.createElement('div');
+      stepper.className = 'sel-stepper';
+      const axisLabel = document.createElement('span');
+      axisLabel.className = 'sel-stepper-label';
+      axisLabel.textContent = axisName;
+      const minus = document.createElement('button');
+      minus.textContent = '−'; minus.title = `Moins de graduations (axe ${axisName})`;
+      minus.addEventListener('click', () => applyTicks(obj[key] - 1));
+      const numInput = document.createElement('input');
+      numInput.type = 'number'; numInput.className = 'sel-tick-input';
+      numInput.min = '1'; numInput.max = '30'; numInput.step = '1';
+      numInput.value = obj[key];
+      numInput.title = `Nombre de graduations (axe ${axisName})`;
+      numInput.addEventListener('change', () => applyTicks(parseInt(numInput.value, 10) || 10));
+      const plus = document.createElement('button');
+      plus.textContent = '+'; plus.title = `Plus de graduations (axe ${axisName})`;
+      plus.addEventListener('click', () => applyTicks(obj[key] + 1));
+      stepper.append(axisLabel, minus, numInput, plus);
+      selToolbar.appendChild(stepper);
+    });
 
     const numBtn = document.createElement('button');
     numBtn.textContent = '123';
@@ -2717,6 +2731,14 @@ imageInput.addEventListener('change', () => {
 // keydown dispatch below, but shares the same customization list/UI/storage as the tool keys.
 const TOOL_LABELS = { select: 'Sélection', hand: 'Main', pen: 'Stylo', eraser: 'Gomme', arrow: 'Flèche', line: 'Ligne', rect: 'Rectangle', ellipse: 'Ellipse', text: 'Texte', note: 'Note', calculator: 'Calculatrice' };
 const DEFAULT_SHORTCUTS = { select: 'a', hand: 'z', pen: 'e', eraser: 'v', arrow: 'h', line: 'l', rect: 'g', ellipse: 'o', text: 't', note: 'n', calculator: 'r' };
+// Color shortcuts (color0..colorN, one per PALETTE entry) share the same customization
+// list/UI/storage as the tool keys above — handled as a special case in the keydown dispatch
+// below, just like "calculator".
+const COLOR_NAMES = ['Noir', 'Rouge', 'Orange', 'Vert', 'Bleu', 'Violet', 'Blanc'];
+PALETTE.forEach((_, i) => {
+  TOOL_LABELS[`color${i}`] = `Couleur : ${COLOR_NAMES[i] || i + 1}`;
+  DEFAULT_SHORTCUTS[`color${i}`] = String(i + 1);
+});
 let activeShortcuts = { ...DEFAULT_SHORTCUTS };
 let toolKeyMap = invertShortcuts(activeShortcuts);
 let shortcutsModalOpen = false;
@@ -2752,6 +2774,7 @@ window.addEventListener('keydown', (e) => {
   const tool = toolKeyMap[k];
   if (!tool || e.ctrlKey || e.metaKey) return;
   if (tool === 'calculator') { toggleCalc(); return; }
+  if (tool.startsWith('color')) { applyCustomColor(PALETTE[parseInt(tool.slice(5), 10)]); return; }
   setTool(tool === 'select' ? state.lastSelectTool : tool);
 });
 window.addEventListener('keyup', (e) => {

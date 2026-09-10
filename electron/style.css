@@ -1520,6 +1520,12 @@ html, body {
   align-items: center;
   gap: 2px;
 }
+.sel-stepper-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-right: 2px;
+}
 .sel-stepper button {
   width: 22px !important;
   font-size: 15px !important;
