@@ -280,7 +280,12 @@ function drawAxisLabel(c, tipX, tipY, dx, dy, text) {
 
 // `maxValue` is the graduation value shown at the axis tip (entering 4 draws -4..4) — not a
 // total tick count — so it's used directly as the half-length, with no /2 conversion.
-function drawGraduatedAxis(c, cx, cy, dx, dy, len, maxValue, tickLen, showNumbers) {
+// `step` (default 1) is how much real value each gridline represents — axes2d/axes3d/
+// trigcircle never set it (one unit per gridline, matching the historical behavior), while
+// an auto-scaled function graph can pass a nice non-1 step so it doesn't need one gridline
+// per unit when its range runs into the hundreds.
+function drawGraduatedAxis(c, cx, cy, dx, dy, len, maxValue, tickLen, showNumbers, step) {
+  step = step || 1;
   const ex = cx + dx * len, ey = cy + dy * len;
   c.beginPath();
   c.moveTo(cx - dx * len, cy - dy * len);
@@ -288,7 +293,7 @@ function drawGraduatedAxis(c, cx, cy, dx, dy, len, maxValue, tickLen, showNumber
   c.stroke();
   drawSmallArrowAt(c, ex, ey, Math.atan2(dy, dx));
   const px = -dy, py = dx;
-  const half = Math.max(1, Math.round(maxValue));
+  const half = Math.max(1, Math.round(maxValue / step));
   c.beginPath();
   for (let i = -half; i <= half; i++) {
     if (i === 0) continue;
@@ -307,10 +312,11 @@ function drawGraduatedAxis(c, cx, cy, dx, dy, len, maxValue, tickLen, showNumber
     const labelOff = tickLen * 2.4;
     for (let i = 1; i <= half; i++) {
       const t = i / half;
+      const value = Math.round(i * step * 1e6) / 1e6;
       let tx = cx + dx * len * t, ty = cy + dy * len * t;
-      c.fillText(String(i), tx + px * labelOff, ty + py * labelOff);
+      c.fillText(String(value), tx + px * labelOff, ty + py * labelOff);
       tx = cx - dx * len * t; ty = cy - dy * len * t;
-      c.fillText(String(-i), tx + px * labelOff, ty + py * labelOff);
+      c.fillText(String(-value), tx + px * labelOff, ty + py * labelOff);
     }
     c.restore();
   }
@@ -327,8 +333,8 @@ function drawAxes2D(c, obj) {
   const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
   c.strokeStyle = obj.color; c.lineWidth = 1.5; c.lineCap = 'round'; c.lineJoin = 'round';
   const showNumbers = !!obj.showNumbers;
-  drawGraduatedAxis(c, cx, cy, 1, 0, obj.w / 2, axisMaxValue(obj, 'X'), 5, showNumbers);
-  drawGraduatedAxis(c, cx, cy, 0, -1, obj.h / 2, axisMaxValue(obj, 'Y'), 5, showNumbers);
+  drawGraduatedAxis(c, cx, cy, 1, 0, obj.w / 2, axisMaxValue(obj, 'X'), 5, showNumbers, obj.tickStepX);
+  drawGraduatedAxis(c, cx, cy, 0, -1, obj.h / 2, axisMaxValue(obj, 'Y'), 5, showNumbers, obj.tickStepY);
   drawAxisLabel(c, cx + obj.w / 2, cy, 1, 0, 'x');
   drawAxisLabel(c, cx, cy - obj.h / 2, 0, -1, 'y');
 }
@@ -777,6 +783,7 @@ function render() {
   if (state.pageMode !== 'off') drawPageOverlay();
   const visibleRect = getVisibleWorldRect();
   for (const obj of state.objects) {
+    if (editingEl && editingEl.obj === obj) continue; // the overlay editor already shows this one
     if (!bboxIntersects(getObjBBox(obj), visibleRect)) continue;
     drawObject(obj);
   }
@@ -1293,6 +1300,76 @@ function insertTrigCircle() {
   render(); scheduleSave();
 }
 
+// Rounds a raw max value up to a "nice" round number (1/2/5 × a power of ten) sized so
+// ~5 gridlines span 0..max, and returns the per-gridline step alongside it.
+function niceAxisScale(rawMax) {
+  if (!Number.isFinite(rawMax) || rawMax <= 0) return { max: 10, step: 1 };
+  const targetSteps = 5;
+  const roughStep = rawMax / targetSteps;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(roughStep)));
+  const residual = roughStep / magnitude;
+  let niceResidual;
+  if (residual <= 1) niceResidual = 1;
+  else if (residual <= 2) niceResidual = 2;
+  else if (residual <= 5) niceResidual = 5;
+  else niceResidual = 10;
+  const step = niceResidual * magnitude;
+  const max = Math.ceil(rawMax / step) * step;
+  return { max, step };
+}
+
+// Draws a typed function of x as a normal pen stroke (or several, split at asymptotes/
+// undefined points) sitting on a plain axes2d grid, rather than as its own recomputed
+// object type — that's what makes the curve independently colorable and erasable with the
+// partial eraser exactly like hand-drawn ink. The Y scale is auto-fit to the actual range of
+// f(x) over x∈[-maxX,maxX] so the curve never has to be clipped to fit the panel.
+function insertFuncGraph(expr) {
+  pushHistory();
+  const center = screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
+  const w = 320, h = 320;
+  const maxX = 10;
+  const steps = 300;
+
+  const ys = new Array(steps + 1);
+  let maxAbsY = 0;
+  for (let i = 0; i <= steps; i++) {
+    const x = -maxX + (i / steps) * (2 * maxX);
+    let y;
+    try { y = evaluateMathExpression(expr, false, { x }); } catch (e) { y = NaN; }
+    if (Number.isFinite(y)) { ys[i] = y; maxAbsY = Math.max(maxAbsY, Math.abs(y)); }
+    else ys[i] = NaN;
+  }
+  const { max: maxY, step: stepY } = niceAxisScale(maxAbsY);
+
+  const groupId = uid();
+  const axesObj = {
+    id: uid(), type: 'axes2d', groupId,
+    x: center.x - w / 2, y: center.y - h / 2, w, h,
+    color: mathObjectColor(), tickCountX: maxX, tickCountY: maxY, tickStepY: stepY, showNumbers: true
+  };
+  const cx = axesObj.x + w / 2, cy = axesObj.y + h / 2;
+  const halfW = w / 2, halfH = h / 2;
+
+  const newObjects = [axesObj];
+  let current = [];
+  const flushSegment = () => {
+    if (current.length >= 2) newObjects.push({ id: uid(), type: 'stroke', tool: 'pen', points: current, color: '#e03131', width: 3, groupId });
+    current = [];
+  };
+  for (let i = 0; i <= steps; i++) {
+    const y = ys[i];
+    if (!Number.isFinite(y)) { flushSegment(); continue; }
+    const x = -maxX + (i / steps) * (2 * maxX);
+    current.push({ x: cx + (x / maxX) * halfW, y: cy - (y / maxY) * halfH });
+  }
+  flushSegment();
+
+  state.objects.push(...newObjects);
+  setTool('select');
+  state.selection = newObjects;
+  render(); scheduleSave();
+}
+
 // ---------- Scientific calculator ----------
 // Self-contained expression evaluator (tokenizer + recursive-descent parser).
 // Supports numeric expressions only (no variables/solving), matching a
@@ -1350,7 +1427,7 @@ function mathInsertImplicitMul(tokens) {
   return out;
 }
 
-function mathParse(tokens, degMode) {
+function mathParse(tokens, degMode, vars) {
   let pos = 0;
   const peek = () => tokens[pos];
   const consume = (val) => {
@@ -1422,6 +1499,7 @@ function mathParse(tokens, degMode) {
         expect(')');
         return mathCallFunc(name, args, degMode);
       }
+      if (vars && name in vars) return vars[name];
       if (name in MATH_CONSTS) return MATH_CONSTS[name];
       throw new Error('Inconnu : ' + t.value);
     }
@@ -1468,21 +1546,24 @@ function mathCallFunc(name, args, degMode) {
   }
 }
 
-function evaluateMathExpression(expr, degMode) {
+function evaluateMathExpression(expr, degMode, vars) {
   const tokens = mathInsertImplicitMul(mathTokenize(expr));
-  return mathParse(tokens, degMode);
+  return mathParse(tokens, degMode, vars);
 }
 
 let calcOpen = false;
 let calcDegMode = true;
+let calcMode = 'calc'; // 'calc' | 'func' — 'func' turns the pad into a graph-plotter input
 const calcPanelEl = document.getElementById('calc-panel');
 const calcInputEl = document.getElementById('calc-input');
 const calcResultEl = document.getElementById('calc-result');
 const calcButtonsEl = document.getElementById('calc-buttons');
 const calcModeToggleEl = document.getElementById('calc-mode-toggle');
 const calcStarsEl = document.getElementById('calc-stars');
+const calcTabCalcEl = document.getElementById('calc-tab-calc');
+const calcTabFuncEl = document.getElementById('calc-tab-func');
 
-const CALC_BUTTON_ROWS = [
+const CALC_BUTTON_ROWS_CALC = [
   ['(', ')', 'C', '⌫', '%'],
   ['sin', 'cos', 'tan', '^', '√'],
   ['asin', 'acos', 'atan', 'ln', 'log'],
@@ -1491,14 +1572,26 @@ const CALC_BUTTON_ROWS = [
   ['1', '2', '3', '-', '!'],
   ['0', '.', '=', '+']
 ];
+// Same layout, minus the two entries that don't apply to a function-of-x (%, =) — swapped
+// for the "x" variable and the "Dessiner" action that plots the typed expression.
+const CALC_BUTTON_ROWS_FUNC = [
+  ['(', ')', 'C', '⌫', 'x'],
+  ['sin', 'cos', 'tan', '^', '√'],
+  ['asin', 'acos', 'atan', 'ln', 'log'],
+  ['7', '8', '9', '/', 'π'],
+  ['4', '5', '6', '*', 'e'],
+  ['1', '2', '3', '-', '!'],
+  ['0', '.', 'Dessiner', '+']
+];
 
 function buildCalcButtons() {
   calcButtonsEl.innerHTML = '';
-  CALC_BUTTON_ROWS.forEach(row => {
+  const rows = calcMode === 'func' ? CALC_BUTTON_ROWS_FUNC : CALC_BUTTON_ROWS_CALC;
+  rows.forEach(row => {
     row.forEach(label => {
       const btn = document.createElement('button');
       btn.textContent = label;
-      if (label === '=') btn.classList.add('calc-eq');
+      if (label === '=' || label === 'Dessiner') btn.classList.add('calc-eq');
       btn.addEventListener('click', () => calcButtonPress(label));
       calcButtonsEl.appendChild(btn);
     });
@@ -1509,6 +1602,7 @@ function calcButtonPress(label) {
   if (label === 'C') { calcInputEl.value = ''; calcResultEl.textContent = ''; calcResultEl.classList.remove('error'); calcInputEl.focus(); return; }
   if (label === '⌫') { calcInputEl.value = calcInputEl.value.slice(0, -1); calcInputEl.focus(); return; }
   if (label === '=') { calcEvaluate(); return; }
+  if (label === 'Dessiner') { calcDrawFunction(); return; }
   const insertMap = { '√': 'sqrt(' };
   const needsParen = MATH_FUNCS.has(label);
   const toInsert = insertMap[label] || (needsParen ? label + '(' : label);
@@ -1530,6 +1624,38 @@ function calcEvaluate() {
   }
 }
 
+// Test-evaluates at a couple of x values before handing off to insertFuncGraph, so a typo
+// or unknown identifier surfaces as an immediate error instead of a silently empty graph.
+function calcDrawFunction() {
+  const expr = calcInputEl.value.trim();
+  if (!expr) return;
+  try {
+    evaluateMathExpression(expr, false, { x: 1 });
+    evaluateMathExpression(expr, false, { x: 0.5 });
+  } catch (err) {
+    calcResultEl.textContent = 'Erreur : ' + err.message;
+    calcResultEl.classList.add('error');
+    return;
+  }
+  insertFuncGraph(expr);
+  calcInputEl.value = '';
+  calcResultEl.textContent = '';
+  calcResultEl.classList.remove('error');
+  toggleCalc(false);
+}
+
+function setCalcMode(mode) {
+  calcMode = mode;
+  calcTabCalcEl.classList.toggle('active', mode === 'calc');
+  calcTabFuncEl.classList.toggle('active', mode === 'func');
+  calcInputEl.placeholder = mode === 'func' ? 'Ex : sin(x)*x, x^2-3' : 'Ex : sin(30)+2^3';
+  calcInputEl.value = '';
+  calcResultEl.textContent = '';
+  calcResultEl.classList.remove('error');
+  buildCalcButtons();
+  calcInputEl.focus();
+}
+
 function toggleCalc(forceShow) {
   calcOpen = typeof forceShow === 'boolean' ? forceShow : !calcOpen;
   calcPanelEl.classList.toggle('hidden', !calcOpen);
@@ -1543,7 +1669,7 @@ function toggleCalc(forceShow) {
 
 calcInputEl.addEventListener('keydown', (e) => {
   e.stopPropagation();
-  if (e.key === 'Enter') { e.preventDefault(); calcEvaluate(); }
+  if (e.key === 'Enter') { e.preventDefault(); if (calcMode === 'func') calcDrawFunction(); else calcEvaluate(); }
   if (e.key === 'Escape') { e.preventDefault(); toggleCalc(false); }
 });
 document.getElementById('calc-close').addEventListener('click', () => toggleCalc(false));
@@ -1552,6 +1678,8 @@ calcModeToggleEl.addEventListener('click', () => {
   calcModeToggleEl.textContent = calcDegMode ? 'DEG' : 'RAD';
   calcModeToggleEl.classList.toggle('active', !calcDegMode);
 });
+calcTabCalcEl.addEventListener('click', () => setCalcMode('calc'));
+calcTabFuncEl.addEventListener('click', () => setCalcMode('func'));
 
 document.querySelectorAll('#bottom-toolbar .tool-btn[data-flyout]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1879,7 +2007,9 @@ function onPointerDown(e) {
         const idx = state.selection.indexOf(hit);
         if (idx >= 0) state.selection.splice(idx, 1); else state.selection.push(hit);
       } else if (!state.selection.includes(hit)) {
-        state.selection = [hit];
+        // Clicking any member of a group selects the whole group, so it can be moved as
+        // one unit without re-doing a rubber-band/shift-click selection every time.
+        state.selection = hit.groupId ? state.objects.filter(o => o.groupId === hit.groupId) : [hit];
       }
       pushHistory();
       drag = {
@@ -2351,9 +2481,14 @@ function deleteSelection() {
 }
 
 function cloneObjectsOffset(objects, off) {
+  const groupIdMap = new Map();
   return objects.map(o => {
     const c = JSON.parse(JSON.stringify(o));
     c.id = uid();
+    if (c.groupId) {
+      if (!groupIdMap.has(c.groupId)) groupIdMap.set(c.groupId, uid());
+      c.groupId = groupIdMap.get(c.groupId);
+    }
     if (c.type === 'stroke') c.points = c.points.map(p => ({ x: p.x + off, y: p.y + off }));
     else if (c.type === 'line' || c.type === 'arrow') { c.x1 += off; c.y1 += off; c.x2 += off; c.y2 += off; }
     else { c.x += off; c.y += off; }
@@ -2368,9 +2503,14 @@ function cloneObjectsTo(objects, targetCenter) {
   const bbox = getObjectsBBox(objects);
   const dx = targetCenter.x - (bbox.x + bbox.w / 2);
   const dy = targetCenter.y - (bbox.y + bbox.h / 2);
+  const groupIdMap = new Map();
   return objects.map(o => {
     const c = JSON.parse(JSON.stringify(o));
     c.id = uid();
+    if (c.groupId) {
+      if (!groupIdMap.has(c.groupId)) groupIdMap.set(c.groupId, uid());
+      c.groupId = groupIdMap.get(c.groupId);
+    }
     if (c.type === 'stroke') c.points = c.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
     else if (c.type === 'line' || c.type === 'arrow') { c.x1 += dx; c.y1 += dy; c.x2 += dx; c.y2 += dy; }
     else { c.x += dx; c.y += dy; }
@@ -2385,6 +2525,21 @@ function duplicateSelection() {
   state.objects.push(...copies);
   state.selection = copies;
   render(); scheduleSave();
+}
+
+// Single toggle for the group/ungroup button and Ctrl+G: ungroups if the current selection
+// touches any existing group, otherwise groups the (2+) selected objects into a new one.
+function toggleGroupSelection() {
+  if (state.selection.length < 2 && !state.selection.some(o => o.groupId)) return;
+  pushHistory();
+  if (state.selection.some(o => o.groupId)) {
+    state.selection.forEach(o => { delete o.groupId; });
+  } else {
+    const gid = uid();
+    state.selection.forEach(o => { o.groupId = gid; });
+  }
+  render(); scheduleSave();
+  buildSelectionToolbar();
 }
 
 // ---------- Copy / paste (internal objects + external text/image) ----------
@@ -2486,13 +2641,27 @@ function buildSelectionToolbar() {
     const axisNames = obj.type === 'axes3d' ? ['X', 'Y', 'Z'] : ['X', 'Y'];
     axisNames.forEach((axisName) => {
       const key = `tickCount${axisName}`;
+      const stepKey = `tickStep${axisName}`;
       if (obj[key] == null) obj[key] = obj.tickCount || 10;
+      // An axis that already carries a step (auto-scaled by a function plot, where the max
+      // can run into the hundreds) needs its step recomputed on every manual edit too —
+      // otherwise the step keeps whatever it was fit to before, which stops lining up with
+      // the new max and the tip label goes out of sync with the actual plotted scale.
+      const isAutoScaled = obj[stepKey] != null;
       const applyTicks = (n) => {
         pushHistory();
-        obj[key] = Math.max(1, Math.min(30, Math.round(n)));
+        if (isAutoScaled) {
+          const { max, step } = niceAxisScale(n);
+          obj[key] = max;
+          obj[stepKey] = step;
+        } else {
+          obj[key] = Math.max(1, Math.min(30, Math.round(n)));
+        }
         numInput.value = obj[key];
         render(); scheduleSave();
+        if (isAutoScaled) buildSelectionToolbar(); // step may have changed — keep +/- in sync
       };
+      const increment = isAutoScaled ? (obj[stepKey] || 1) : 1;
       const stepper = document.createElement('div');
       stepper.className = 'sel-stepper';
       const axisLabel = document.createElement('span');
@@ -2500,16 +2669,16 @@ function buildSelectionToolbar() {
       axisLabel.textContent = axisName;
       const minus = document.createElement('button');
       minus.textContent = '−'; minus.title = `Moins de graduations (axe ${axisName})`;
-      minus.addEventListener('click', () => applyTicks(obj[key] - 1));
+      minus.addEventListener('click', () => applyTicks(obj[key] - increment));
       const numInput = document.createElement('input');
       numInput.type = 'number'; numInput.className = 'sel-tick-input';
-      numInput.min = '1'; numInput.max = '30'; numInput.step = '1';
+      numInput.min = '1'; numInput.max = isAutoScaled ? '1000000' : '30'; numInput.step = '1';
       numInput.value = obj[key];
       numInput.title = `Nombre de graduations (axe ${axisName})`;
       numInput.addEventListener('change', () => applyTicks(parseInt(numInput.value, 10) || 10));
       const plus = document.createElement('button');
       plus.textContent = '+'; plus.title = `Plus de graduations (axe ${axisName})`;
-      plus.addEventListener('click', () => applyTicks(obj[key] + 1));
+      plus.addEventListener('click', () => applyTicks(obj[key] + increment));
       stepper.append(axisLabel, minus, numInput, plus);
       selToolbar.appendChild(stepper);
     });
@@ -2564,6 +2733,16 @@ function buildSelectionToolbar() {
     b.addEventListener('click', () => reorderSelection(kind));
     selToolbar.appendChild(b);
   });
+
+  if (state.selection.length > 1 || state.selection.some(o => o.groupId)) {
+    const isGrouped = state.selection.some(o => o.groupId);
+    const groupBtn = document.createElement('button');
+    groupBtn.textContent = '🔗';
+    groupBtn.title = isGrouped ? 'Dégrouper (Ctrl+G)' : 'Grouper (Ctrl+G) pour déplacer la sélection d\'un bloc';
+    groupBtn.classList.toggle('active', isGrouped);
+    groupBtn.addEventListener('click', toggleGroupSelection);
+    selToolbar.appendChild(groupBtn);
+  }
 
   const sep2 = document.createElement('span');
   sep2.className = 'flyout-sep';
@@ -2767,6 +2946,7 @@ window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelection(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') { e.preventDefault(); toggleGroupSelection(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); state.selection = state.objects.slice(); render(); return; }
   if (e.key === 'Delete' || e.key === 'Backspace') { if (state.selection.length) { e.preventDefault(); deleteSelection(); } return; }
   if (e.key === 'Escape') { clearSelection(); return; }
