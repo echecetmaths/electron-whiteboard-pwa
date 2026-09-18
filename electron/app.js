@@ -3145,6 +3145,8 @@ async function openSubscribeModal(context) {
         ? `Annulation prévue — tu gardes l'accès à la personnalisation jusqu'au <strong>${renewDate}</strong>, puis les réglages d'export reviendront par défaut.`
         : `Prochain renouvellement : <strong>${renewDate}</strong>`
     );
+  } else if (res && res.error === 'reverification_required') {
+    manageStatusEl.textContent = "Une nouvelle vérification est nécessaire pour afficher les détails de l'abonnement. Contacte-nous via echecetmaths.com si besoin.";
   } else {
     manageStatusEl.textContent = "Impossible de récupérer les détails de l'abonnement (hors ligne ?).";
   }
@@ -3241,7 +3243,9 @@ document.getElementById('btn-manage-portal').addEventListener('click', async () 
   manageStatusEl.textContent = 'Ouverture du portail...';
   const res = await window.api.openSubscriptionPortal(state.settings.email);
   if (!res || !res.ok) {
-    manageStatusEl.textContent = "Impossible d'ouvrir le portail pour le moment (réessaie plus tard).";
+    manageStatusEl.textContent = res && res.error === 'reverification_required'
+      ? "Une nouvelle vérification est nécessaire pour gérer ton abonnement. Contacte-nous via echecetmaths.com si besoin."
+      : "Impossible d'ouvrir le portail pour le moment (réessaie plus tard).";
     return;
   }
   openPortalEmbed(res.url);

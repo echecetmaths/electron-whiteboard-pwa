@@ -84,6 +84,7 @@
   function defaultSettings() {
     return {
       email: '',
+      licenseToken: null, // signed proof-of-payment token for `email`, minted by /session-email
       subscriptionActive: false,
       subscriptionCheckedAt: 0,
       cancelAtPeriodEnd: false,
@@ -133,6 +134,7 @@
       const trimmed = data.email.trim().toLowerCase();
       const settings = await readSettings();
       settings.email = trimmed;
+      if (data.token) settings.licenseToken = data.token;
       await writeSettings(settings);
       paymentCompletedCb({ ok: true, email: trimmed });
     } catch (err) {
@@ -213,11 +215,12 @@
       const trimmed = (email || '').trim().toLowerCase();
       if (!trimmed) return { ok: false, error: 'missing_email' };
       try {
-        const res = await fetch(`${LICENSE_WORKER_BASE}/subscription?email=${encodeURIComponent(trimmed)}`);
-        if (!res.ok) return { ok: false, error: 'server_error' };
-        const data = await res.json();
+        const settings = await readSettings();
+        const tokenQS = settings.licenseToken ? `&token=${encodeURIComponent(settings.licenseToken)}` : '';
+        const res = await fetch(`${LICENSE_WORKER_BASE}/subscription?email=${encodeURIComponent(trimmed)}${tokenQS}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return { ok: false, error: data.error || 'server_error' };
         if (data.active) {
-          const settings = await readSettings();
           settings.cancelAtPeriodEnd = !!data.cancelAtPeriodEnd;
           await writeSettings(settings);
         }
@@ -245,13 +248,14 @@
       const trimmed = (email || '').trim().toLowerCase();
       if (!trimmed) return { ok: false, error: 'missing_email' };
       try {
+        const settings = await readSettings();
         const res = await fetch(`${LICENSE_WORKER_BASE}/portal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: trimmed })
+          body: JSON.stringify({ email: trimmed, token: settings.licenseToken || undefined })
         });
-        if (!res.ok) return { ok: false, error: 'server_error' };
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return { ok: false, error: data.error || 'server_error' };
         if (!data.url) return { ok: false, error: 'no_url' };
         return { ok: true, url: data.url };
       } catch (err) {
