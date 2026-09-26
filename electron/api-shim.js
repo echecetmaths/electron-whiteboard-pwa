@@ -329,7 +329,19 @@
     // the browser as a normal download instead of a native Save As dialog.
     exportPdfFull: async (payload) => {
       try {
-        const blob = await window.buildExportPdfBlob(payload);
+        // Which bands/pages to include, and whether to splice in a custom end-page PDF, are
+        // paid features — the renderer already gates them via getPdfPrefs(), but that check is
+        // bypassable by calling this directly (e.g. from devtools), so it's re-applied here
+        // against our own stored settings rather than trusted from the payload. This can't
+        // retroactively remove custom text/logo already baked into the cover/header/footer
+        // *images* themselves, since those arrive pre-rendered — a limitation shared by any app
+        // (this one especially, since there's no separate trusted process in a PWA at all).
+        const settings = await readSettings();
+        const requestedPrefs = { showCover: true, showEnd: true, showHeader: true, showFooter: true, ...(payload.pdfPrefs || {}) };
+        const prefs = settings.subscriptionActive
+          ? requestedPrefs
+          : { ...requestedPrefs, showCover: true, showEnd: true, showHeader: true, showFooter: true, endPdfPath: null };
+        const blob = await window.buildExportPdfBlob({ ...payload, pdfPrefs: prefs });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
