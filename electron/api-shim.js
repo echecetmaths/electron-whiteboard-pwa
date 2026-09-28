@@ -14,6 +14,34 @@
   const STRIPE_PAYMENT_LINK_YEARLY = 'https://buy.stripe.com/dRm3cv7tD7lF16K3iZ2sM1j'; // 49,99€ / an
   const DEFAULT_FOOTER_TEXT = 'Propulsé par Echec & Maths - Cours particuliers';
 
+  // The same bundle ships as the web PWA and, wrapped by Capacitor, as the Google Play app.
+  // Play forbids any payment path other than Google Play Billing for in-app digital goods, so
+  // every Stripe entry point is suppressed natively; an existing subscriber still unlocks by
+  // verifying the email they paid with.
+  const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const nativePlugin = (name) => (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins[name]) || null;
+
+  // The board list is a fixed 260px, which on a 375px phone leaves no canvas at all. Start it
+  // collapsed on narrow viewports; the ☰ button still opens it.
+  document.addEventListener('DOMContentLoaded', () => {
+    if (window.innerWidth < 700) {
+      const sidebar = document.getElementById('sidebar');
+      if (sidebar) sidebar.classList.add('collapsed');
+    }
+  });
+
+  if (IS_NATIVE) {
+    // CSS rather than removing the nodes: app.js re-shows these screens by toggling .hidden, and
+    // a stylesheet can't be undone that way.
+    const style = document.createElement('style');
+    style.textContent = '#subscribe-plans,#subscribe-cancel-note,#btn-manage-portal{display:none!important}';
+    (document.head || document.documentElement).appendChild(style);
+    document.addEventListener('DOMContentLoaded', () => {
+      const status = document.getElementById('subscribe-status');
+      if (status) status.textContent = "Statut : entre l'email de ton abonnement, puis clique sur Vérifier.";
+    });
+  }
+
   // ---------- IndexedDB ----------
   const DB_NAME = 'electron-whiteboard';
   const DB_VERSION = 1;
@@ -235,6 +263,7 @@
     // auto-detection here; the app's existing "Vérifier" flow (already built for the offline/
     // failure case) is what picks the subscription up once the user comes back.
     openPayment: async (plan) => {
+      if (IS_NATIVE) return;
       const link = plan === 'yearly' ? STRIPE_PAYMENT_LINK_YEARLY : STRIPE_PAYMENT_LINK_MONTHLY;
       const settings = await readSettings();
       const target = new URL(link);
@@ -245,6 +274,7 @@
 
     // Subscription management portal — same idea: a real tab instead of an embedded native view.
     openSubscriptionPortal: async (email) => {
+      if (IS_NATIVE) return { ok: false, error: 'portal_unavailable_native' };
       const trimmed = (email || '').trim().toLowerCase();
       if (!trimmed) return { ok: false, error: 'missing_email' };
       try {
@@ -342,10 +372,32 @@
           ? requestedPrefs
           : { ...requestedPrefs, showCover: true, showEnd: true, showHeader: true, showFooter: true, endPdfPath: null };
         const blob = await window.buildExportPdfBlob({ ...payload, pdfPrefs: prefs });
+        const fileName = String(payload.boardName || 'tableau').replace(/[\\/:*?"<>|]/g, '-').slice(0, 80) + '.pdf';
+
+        // A WebView ignores <a download> on a blob: URL, so the native build writes the file out
+        // and hands it to the system share sheet (which is also how the user gets it into Drive,
+        // Files, mail, etc.).
+        if (IS_NATIVE) {
+          const Filesystem = nativePlugin('Filesystem');
+          if (!Filesystem) throw new Error('Filesystem plugin unavailable');
+          const dataUrl = await fileToDataUrl(blob);
+          const written = await Filesystem.writeFile({
+            path: fileName,
+            data: String(dataUrl).split(',')[1],
+            directory: 'DOCUMENTS',
+            recursive: true
+          });
+          const Share = nativePlugin('Share');
+          if (Share) {
+            await Share.share({ title: fileName, url: written.uri, dialogTitle: 'Enregistrer ou partager le PDF' });
+          }
+          return { ok: true };
+        }
+
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = (payload.boardName || 'tableau') + '.pdf';
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         a.remove();
