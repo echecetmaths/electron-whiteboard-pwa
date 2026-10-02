@@ -130,6 +130,23 @@
         </div>
         <input id="calc-input" type="text" placeholder="Ex : sin(30)+2^3" spellcheck="false" autocomplete="off">
         <div id="calc-result"></div>
+        <div id="calc-func-options" class="hidden">
+          <div class="calc-range-row">
+            <span class="calc-range-label">x</span>
+            <input type="number" id="calc-xmin" step="any" aria-label="x minimum">
+            <input type="number" id="calc-xmax" step="any" aria-label="x maximum">
+          </div>
+          <div class="calc-range-row">
+            <span class="calc-range-label">y</span>
+            <input type="number" id="calc-ymin" step="any" aria-label="y minimum">
+            <input type="number" id="calc-ymax" step="any" aria-label="y maximum">
+          </div>
+          <div id="calc-func-toggles">
+            <button type="button" data-flag="showRoots">Racines</button>
+            <button type="button" data-flag="showIntercept">Ordonnée à l'origine</button>
+            <button type="button" data-flag="showAsymptotes">Asymptotes</button>
+          </div>
+        </div>
         <div id="calc-buttons"></div>
       </div>
 
@@ -340,9 +357,26 @@
     </div>
   </div>
 
+  <div id="pdf-import-modal" class="hidden">
+    <div id="pdf-import-panel">
+      <div id="pdf-import-header">
+        <span id="pdf-import-title">Importer un PDF</span>
+        <button id="btn-pdf-import-close" title="Fermer">✕</button>
+      </div>
+      <p id="pdf-import-status">Lecture du document…</p>
+      <div id="pdf-import-pages"></div>
+      <div id="pdf-import-actions">
+        <button id="btn-pdf-import-toggle-all" class="subscribe-link-btn">Tout désélectionner</button>
+        <span id="pdf-import-count"></span>
+        <button id="btn-pdf-import-confirm">Importer</button>
+      </div>
+    </div>
+  </div>
+
   <input type="file" id="image-input" accept="image/*,application/pdf" style="display:none">
 </div>
 
+<script src="vendor/pdf.min.js"></script>
 <script src="pdf-lib.min.js"></script>
 <script src="pdf-export.js"></script>
 <script src="api-shim.js"></script>

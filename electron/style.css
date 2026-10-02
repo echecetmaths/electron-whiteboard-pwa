@@ -1575,3 +1575,161 @@ html, body {
   .board-menu-btn { padding: 8px 10px; }
   .shortcut-key-btn { min-width: 42px; padding: 8px 10px; }
 }
+
+/* ---------- PDF page import ---------- */
+#pdf-import-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#pdf-import-panel {
+  width: 640px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+  padding: 16px;
+}
+#pdf-import-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+#btn-pdf-import-close {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+#btn-pdf-import-close:hover { background: var(--bg); }
+#pdf-import-status {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+#pdf-import-pages {
+  margin-top: 12px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+}
+.pdf-page-tile {
+  position: relative;
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  background: var(--bg);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.pdf-page-tile.selected { border-color: var(--accent); }
+.pdf-page-tile canvas {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  background: #ffffff;
+  display: block;
+}
+.pdf-page-tile-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.pdf-page-tile.selected .pdf-page-tile-label { color: var(--accent); font-weight: 600; }
+#pdf-import-actions {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+#pdf-import-count {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+#btn-pdf-import-confirm {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--panel);
+}
+#btn-pdf-import-confirm:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------- Function graph controls (calculator, Fonction tab) ---------- */
+#calc-func-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 2px;
+}
+.calc-range-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.calc-range-label {
+  width: 12px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--text-dim);
+}
+.calc-range-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+#calc-func-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+#calc-func-toggles button {
+  flex: 1 1 auto;
+  padding: 5px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+#calc-func-toggles button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--panel);
+  font-weight: 600;
+}
+
+/* Function tab: tighten the gap between the expression box and what follows. */
+#calc-panel:has(#calc-func-options:not(.hidden)) #calc-result { min-height: 0; margin-top: -4px; }
+#calc-panel:has(#calc-func-options:not(.hidden)) #calc-result:empty { display: none; }
+#calc-panel:has(#calc-func-options:not(.hidden)) #calc-func-options { margin: 0; }

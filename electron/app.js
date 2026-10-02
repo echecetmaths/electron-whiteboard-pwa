@@ -45,9 +45,9 @@ const state = {
   selection: [],
   tool: 'pen',
   color: PALETTE[0],
-  strokeWidth: 4,
+  strokeWidth: 2,
   lastShapeTool: 'rect',
-  lastSelectTool: 'select', // 'select' | 'lasso'
+  lastSelectTool: 'lasso', // 'select' | 'lasso'
   showGrid: true,
   viewport: { panX: 0, panY: 0, zoom: 1 },
   theme: 'light',
@@ -179,7 +179,7 @@ function getObjBBox(obj) {
     case 'arrow': {
       const minX = Math.min(obj.x1, obj.x2), maxX = Math.max(obj.x1, obj.x2);
       const minY = Math.min(obj.y1, obj.y2), maxY = Math.max(obj.y1, obj.y2);
-      const pad = obj.width / 2 + 2;
+      const pad = obj.width / 2 + 2 + (obj.type === 'arrow' ? Math.max(10, obj.width * 3) : 0);
       return { x: minX - pad, y: minY - pad, w: (maxX - minX) + pad * 2, h: (maxY - minY) + pad * 2 };
     }
     default:
@@ -244,16 +244,43 @@ function strokeStyleForObj(obj) {
   ctx.lineJoin = 'round';
 }
 
-function drawArrowHead(x1, y1, x2, y2, width) {
+// The head starts at the end of the stroke (x2, y2) and points outward from it.
+function textFont(obj) {
+  return `${obj.italic ? 'italic ' : ''}${obj.fontSize}px -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+}
+
+// Fills each wrapped line, then underlines it when obj.underline is set.
+function drawTextLines(c, obj, lines) {
+  const lh = obj.fontSize * 1.3;
+  lines.forEach((line, i) => {
+    const y = obj.y + i * lh;
+    c.fillText(line, obj.x, y);
+    if (obj.underline && line) {
+      const w = c.measureText(line).width;
+      const uy = y + obj.fontSize * 1.05;
+      c.save();
+      c.strokeStyle = obj.color;
+      c.lineWidth = Math.max(1, obj.fontSize / 16);
+      c.lineCap = 'butt';
+      c.beginPath(); c.moveTo(obj.x, uy); c.lineTo(obj.x + w, uy); c.stroke();
+      c.restore();
+    }
+  });
+}
+
+function drawArrowHead(x1, y1, x2, y2, width, c) {
+  c = c || ctx;
   const angle = Math.atan2(y2 - y1, x2 - x1);
   const len = Math.max(10, width * 3);
-  ctx.beginPath();
-  ctx.moveTo(x2, y2);
-  ctx.lineTo(x2 - len * Math.cos(angle - Math.PI / 7), y2 - len * Math.sin(angle - Math.PI / 7));
-  ctx.lineTo(x2 - len * Math.cos(angle + Math.PI / 7), y2 - len * Math.sin(angle + Math.PI / 7));
-  ctx.closePath();
-  ctx.fillStyle = ctx.strokeStyle;
-  ctx.fill();
+  const half = len * Math.tan(Math.PI / 7);
+  const nx = -Math.sin(angle), ny = Math.cos(angle);
+  c.beginPath();
+  c.moveTo(x2 + len * Math.cos(angle), y2 + len * Math.sin(angle));
+  c.lineTo(x2 + nx * half, y2 + ny * half);
+  c.lineTo(x2 - nx * half, y2 - ny * half);
+  c.closePath();
+  c.fillStyle = c.strokeStyle;
+  c.fill();
 }
 
 function drawSmallArrowAt(c, x, y, angle) {
@@ -331,7 +358,7 @@ function axisMaxValue(obj, axisLetter) {
 
 function drawAxes2D(c, obj) {
   const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
-  c.strokeStyle = obj.color; c.lineWidth = 1.5; c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = axisColor(); c.lineWidth = 1.5; c.lineCap = 'round'; c.lineJoin = 'round';
   const showNumbers = !!obj.showNumbers;
   drawGraduatedAxis(c, cx, cy, 1, 0, obj.w / 2, axisMaxValue(obj, 'X'), 5, showNumbers, obj.tickStepX);
   drawGraduatedAxis(c, cx, cy, 0, -1, obj.h / 2, axisMaxValue(obj, 'Y'), 5, showNumbers, obj.tickStepY);
@@ -341,7 +368,7 @@ function drawAxes2D(c, obj) {
 
 function drawAxes3D(c, obj) {
   const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
-  c.strokeStyle = obj.color; c.lineWidth = 1.5; c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = axisColor(); c.lineWidth = 1.5; c.lineCap = 'round'; c.lineJoin = 'round';
   const len = Math.min(obj.w, obj.h) / 2;
   const showNumbers = !!obj.showNumbers;
   const zAngle = -210 * Math.PI / 180;
@@ -357,7 +384,7 @@ function drawAxes3D(c, obj) {
 function drawTrigCircle(c, obj) {
   const cx = obj.x + obj.w / 2, cy = obj.y + obj.h / 2;
   const r = Math.min(Math.abs(obj.w), Math.abs(obj.h)) / 2;
-  c.strokeStyle = obj.color; c.lineWidth = 1.5; c.lineCap = 'round'; c.lineJoin = 'round';
+  c.strokeStyle = axisColor(); c.lineWidth = 1.5; c.lineCap = 'round'; c.lineJoin = 'round';
   c.beginPath();
   c.arc(cx, cy, r, 0, Math.PI * 2);
   c.stroke();
@@ -460,13 +487,14 @@ function drawObject(obj) {
     case 'trigcircle':
       drawTrigCircle(ctx, obj);
       break;
+    case 'funcgraph':
+      drawFuncGraph(ctx, obj);
+      break;
     case 'text': {
       ctx.fillStyle = obj.color;
-      ctx.font = `${obj.fontSize}px -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+      ctx.font = textFont(obj);
       ctx.textBaseline = 'top';
-      const lines = getWrappedLines(ctx, obj, obj.w, obj.fontSize);
-      const lh = obj.fontSize * 1.3;
-      lines.forEach((line, i) => ctx.fillText(line, obj.x, obj.y + i * lh));
+      drawTextLines(ctx, obj, getWrappedLines(ctx, obj, obj.w, obj.fontSize));
       break;
     }
     case 'note': {
@@ -714,29 +742,59 @@ function drawPageOverlay() {
 function drawSelectionOverlay() {
   if (!state.selection.length) return;
   const zoom = state.viewport.zoom;
+  const multi = state.selection.length > 1;
   ctx.save();
   ctx.strokeStyle = accentColorCache;
   ctx.lineWidth = 1.5 / zoom;
   ctx.setLineDash([5 / zoom, 4 / zoom]);
+  // With several objects selected the per-object outlines drop to a hint so the one rectangle
+  // around the whole selection reads as the thing being resized.
+  if (multi) ctx.globalAlpha = 0.35;
   for (const obj of state.selection) {
     const b = getObjBBox(obj);
     ctx.strokeRect(b.x - 4 / zoom, b.y - 4 / zoom, b.w + 8 / zoom, b.h + 8 / zoom);
   }
-  ctx.setLineDash([]);
-  if (state.selection.length === 1) {
-    const obj = state.selection[0];
-    const handles = getHandles(obj);
-    ctx.fillStyle = '#ffffff';
+  ctx.globalAlpha = 1;
+  if (multi) {
+    const g = getSelectionBBox();
     ctx.lineWidth = 1.5 / zoom;
-    const hs = HANDLE_PX / zoom;
-    for (const h of handles) {
-      ctx.beginPath();
-      ctx.rect(h.x - hs / 2, h.y - hs / 2, hs, hs);
-      ctx.fill();
-      ctx.stroke();
-    }
+    ctx.strokeRect(g.x, g.y, g.w, g.h);
+  }
+  ctx.setLineDash([]);
+  const handles = getSelectionHandles();
+  ctx.fillStyle = '#ffffff';
+  ctx.lineWidth = 1.5 / zoom;
+  const hs = HANDLE_PX / zoom;
+  for (const h of handles) {
+    ctx.beginPath();
+    ctx.rect(h.x - hs / 2, h.y - hs / 2, hs, hs);
+    ctx.fill();
+    ctx.stroke();
   }
   ctx.restore();
+}
+
+// Union box of the current selection, padded like the per-object outlines so the group frame
+// sits just outside them rather than cutting through.
+function getSelectionBBox() {
+  const b = getObjectsBBox(state.selection);
+  if (!b) return null;
+  const pad = 8 / state.viewport.zoom;
+  return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+}
+
+// One object keeps its own handles (including the two endpoints of a line); several share the
+// four corners of the group frame.
+function getSelectionHandles() {
+  if (!state.selection.length) return [];
+  if (state.selection.length === 1) return getHandles(state.selection[0]);
+  const g = getSelectionBBox();
+  return [
+    { name: 'nw', x: g.x, y: g.y },
+    { name: 'ne', x: g.x + g.w, y: g.y },
+    { name: 'sw', x: g.x, y: g.y + g.h },
+    { name: 'se', x: g.x + g.w, y: g.y + g.h }
+  ];
 }
 
 function getHandles(obj) {
@@ -974,6 +1032,7 @@ function hitObject(obj, pos, tol) {
     case 'axes2d':
     case 'axes3d':
     case 'trigcircle':
+    case 'funcgraph':
     case 'text': {
       const b = getObjBBox(obj);
       return pos.x >= b.x - tol && pos.x <= b.x + b.w + tol && pos.y >= b.y - tol && pos.y <= b.y + b.h + tol;
@@ -1318,57 +1377,366 @@ function niceAxisScale(rawMax) {
   return { max, step };
 }
 
-// Draws a typed function of x as a normal pen stroke (or several, split at asymptotes/
-// undefined points) sitting on a plain axes2d grid, rather than as its own recomputed
-// object type — that's what makes the curve independently colorable and erasable with the
-// partial eraser exactly like hand-drawn ink. The Y scale is auto-fit to the actual range of
-// f(x) over x∈[-maxX,maxX] so the curve never has to be clipped to fit the panel.
+// ---------- Function graphs ----------
+// A plotted function is a single object rather than an axes2d plus a handful of pen strokes:
+// the curve has to stay welded to the frame it was drawn in, and re-opening it in the
+// calculator means the expression and the window must live on the object itself.
+const AXIS_COLOR_BY_MODE = {
+  jour: '#1a1a1a', nuit: '#ffffff',
+  physique: '#FF8A1F', chimie: '#57B3FE', biologie: '#6DC82A'
+};
+// Axes follow the board mode and are deliberately not user-editable: an axis recolored by hand
+// stops matching the rest of the sheet as soon as the mode changes.
+function axisColor() {
+  return AXIS_COLOR_BY_MODE[state.colorMode] || (state.theme === 'dark' ? '#ffffff' : '#1a1a1a');
+}
+const AXIS_TYPES = new Set(['axes2d', 'axes3d', 'trigcircle', 'funcgraph']);
+
+const ASYMPTOTE_COLORS = { vertical: '#6DC82A', horizontal: '#57B3FE', oblique: '#FF8A1F' };
+const FUNC_DEFAULT_SPAN = 10;
+
+function evalAt(expr, x) {
+  try {
+    const y = evaluateMathExpression(expr, false, { x });
+    return Number.isFinite(y) ? y : NaN;
+  } catch (e) {
+    return NaN;
+  }
+}
+const finiteAbs = (v) => (Number.isFinite(v) ? Math.abs(v) : 0);
+
+function niceStep(span) {
+  if (!Number.isFinite(span) || span <= 0) return 1;
+  const rough = span / 8;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  const r = rough / mag;
+  return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 5 ? 5 : 10) * mag;
+}
+
+// Picks a y window that fits the visible part of the curve, ignoring the runaway values near a
+// pole so that one asymptote doesn't flatten the whole plot into a horizontal line.
+function fitYRange(expr, xMin, xMax) {
+  const samples = [];
+  const N = 400;
+  for (let i = 0; i <= N; i++) {
+    const y = evalAt(expr, xMin + (i / N) * (xMax - xMin));
+    if (Number.isFinite(y)) samples.push(y);
+  }
+  if (!samples.length) return { yMin: -FUNC_DEFAULT_SPAN, yMax: FUNC_DEFAULT_SPAN };
+  samples.sort((a, b) => a - b);
+  const lo = samples[Math.floor(samples.length * 0.05)];
+  const hi = samples[Math.floor(samples.length * 0.95)];
+  const mag = Math.max(Math.abs(lo), Math.abs(hi), 1);
+  const bound = Math.ceil(mag / niceStep(mag * 2)) * niceStep(mag * 2);
+  return { yMin: -bound, yMax: bound };
+}
+
+function findRoots(expr, xMin, xMax) {
+  const out = [];
+  const N = 800;
+  const span = xMax - xMin;
+  const addRoot = (r) => {
+    // A pole also flips sign, so only keep crossings where the value really reaches zero.
+    if (finiteAbs(evalAt(expr, r)) > 1e-6) return;
+    if (out.some((v) => Math.abs(v - r) < span * 1e-4)) return;
+    out.push(r);
+  };
+  let prevX = xMin, prevY = evalAt(expr, xMin);
+  if (prevY === 0) addRoot(prevX);
+  for (let i = 1; i <= N; i++) {
+    const x = xMin + (i / N) * span;
+    const y = evalAt(expr, x);
+    // A root sitting exactly on a sample is common with a round window (x^2-4 over -10..10
+    // lands on -2 and 2 dead on), and a strict sign-change test walks straight past it.
+    if (y === 0) {
+      addRoot(x);
+    } else if (Number.isFinite(prevY) && Number.isFinite(y) && prevY * y < 0) {
+      let a = prevX, b = x, fa = prevY;
+      for (let k = 0; k < 60; k++) {
+        const m = (a + b) / 2;
+        const fm = evalAt(expr, m);
+        if (!Number.isFinite(fm)) break;
+        if (fa * fm <= 0) b = m; else { a = m; fa = fm; }
+      }
+      addRoot((a + b) / 2);
+    }
+    prevX = x; prevY = y;
+  }
+  return out.slice(0, 40);
+}
+
+function findVerticalAsymptotes(expr, xMin, xMax) {
+  const out = [];
+  const N = 1000;
+  const span = xMax - xMin;
+  // Undefined counts as "infinitely large" here: right at a pole the evaluator returns NaN, and
+  // the search below is looking for exactly that direction.
+  const mag = (x) => {
+    const v = evalAt(expr, x);
+    return Number.isFinite(v) ? Math.abs(v) : Infinity;
+  };
+  // Ternary search on |f| walks into the pole. Bisecting on the value instead would depend on
+  // the sample step being fine enough to see a huge jump, which it is not: a pole straddled by
+  // two ordinary-looking samples (1/(x-2) sampled at 1.99 and 2.01 reads -100 then +100) slips
+  // straight through a jump threshold.
+  const refinePole = (a, b) => {
+    for (let k = 0; k < 100 && (b - a) > span * 1e-12; k++) {
+      const m1 = a + (b - a) / 3;
+      const m2 = b - (b - a) / 3;
+      if (mag(m1) >= mag(m2)) b = m2; else a = m1;
+    }
+    return (a + b) / 2;
+  };
+  let prevX = xMin, prevV = evalAt(expr, xMin);
+  for (let i = 1; i <= N; i++) {
+    const x = xMin + (i / N) * span;
+    const v = evalAt(expr, x);
+    const signFlip = Number.isFinite(prevV) && Number.isFinite(v) && prevV * v < 0;
+    const definedFlip = Number.isFinite(prevV) !== Number.isFinite(v);
+    // A sign change through small values is a root, not a pole.
+    const large = Math.max(finiteAbs(prevV), finiteAbs(v)) > 50;
+    if ((signFlip && large) || definedFlip) {
+      const xa = refinePole(prevX, x);
+      // A domain edge (sqrt, log) also goes undefined but stays bounded - not a pole.
+      if (mag(xa) > 1e6 && xa > xMin && xa < xMax && !out.some((o) => Math.abs(o - xa) < span * 1e-3)) {
+        out.push(xa);
+      }
+    }
+    prevX = x; prevV = v;
+  }
+  return out.slice(0, 12);
+}
+
+// Horizontal and oblique asymptotes are limits, so they are probed far outside the drawn
+// window rather than read off the visible samples.
+function findEndAsymptotes(expr) {
+  const horizontal = [];
+  const oblique = [];
+  for (const sign of [1, -1]) {
+    const at = (p) => evalAt(expr, sign * p);
+    const p1 = 1e4, p2 = 2e4, p3 = 1e5, p4 = 2e5;
+    const f1 = at(p1), f2 = at(p2), f3 = at(p3), f4 = at(p4);
+    if (![f1, f2, f3, f4].every(Number.isFinite)) continue;
+    // Horizontal: the value itself has stopped moving between decades.
+    if (Math.abs(f4 - f3) < 1e-4 * (1 + Math.abs(f4))) { horizontal.push(f4); continue; }
+    // Oblique: f(x)/x converges only as slowly as 1/x, which never looks settled at any probe
+    // we can afford. The secant slope over a decade converges far faster, so compare that at
+    // two scales instead.
+    const mA = (f2 - f1) / (sign * (p2 - p1));
+    const mB = (f4 - f3) / (sign * (p4 - p3));
+    if (Math.abs(mB - mA) < 1e-6 * (1 + Math.abs(mB)) && Math.abs(mB) > 1e-9) {
+      const p = f4 - mB * (sign * p4);
+      if (Number.isFinite(p)) oblique.push({ m: mB, p });
+    }
+  }
+  const dedupH = horizontal.filter((v, i) => i === 0 || Math.abs(v - horizontal[0]) > 1e-6);
+  const dedupO = oblique.filter((o, i) => i === 0 || Math.abs(o.m - oblique[0].m) > 1e-6 || Math.abs(o.p - oblique[0].p) > 1e-6);
+  return { horizontal: dedupH, oblique: dedupO };
+}
+
+function funcGraphDefaults(obj) {
+  return {
+    xMin: obj.xMin != null ? obj.xMin : -FUNC_DEFAULT_SPAN,
+    xMax: obj.xMax != null ? obj.xMax : FUNC_DEFAULT_SPAN,
+    yMin: obj.yMin != null ? obj.yMin : -FUNC_DEFAULT_SPAN,
+    yMax: obj.yMax != null ? obj.yMax : FUNC_DEFAULT_SPAN
+  };
+}
+
+function fmtCoord(v) {
+  const r = Math.round(v * 100) / 100;
+  return String(Object.is(r, -0) ? 0 : r);
+}
+
+function fmtObliqueEq(m, p) {
+  const mm = Math.round(m * 100) / 100, pp = Math.round(p * 100) / 100;
+  const ms = mm === 1 ? 'x' : mm === -1 ? '-x' : mm + 'x';
+  if (pp === 0) return ms;
+  return ms + (pp > 0 ? '+' : '-') + Math.abs(pp);
+}
+
+function drawFuncGraph(c, obj) {
+  const { xMin, xMax, yMin, yMax } = funcGraphDefaults(obj);
+  const spanX = xMax - xMin, spanY = yMax - yMin;
+  if (!(spanX > 0) || !(spanY > 0)) return;
+  const sx = (x) => obj.x + ((x - xMin) / spanX) * obj.w;
+  const sy = (y) => obj.y + obj.h - ((y - yMin) / spanY) * obj.h;
+  const clampX = (v) => Math.min(obj.x + obj.w, Math.max(obj.x, v));
+  const clampY = (v) => Math.min(obj.y + obj.h, Math.max(obj.y, v));
+  const axisY = clampY(sy(0));
+  const axisX = clampX(sx(0));
+  const ink = axisColor();
+
+  // Axes, ticks and graduations are drawn unclipped so the min/max labels at the frame
+  // edges are not cut off; only the curve, asymptotes and markers are clipped.
+  c.save();
+  c.strokeStyle = ink;
+  c.fillStyle = ink;
+  c.lineWidth = 1.5;
+  c.lineCap = 'round';
+  c.beginPath();
+  c.moveTo(obj.x, axisY); c.lineTo(obj.x + obj.w, axisY);
+  c.moveTo(axisX, obj.y + obj.h); c.lineTo(axisX, obj.y);
+  c.stroke();
+  drawSmallArrowAt(c, obj.x + obj.w, axisY, 0);
+  drawSmallArrowAt(c, axisX, obj.y, -Math.PI / 2);
+
+  c.font = '11px -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+  c.textAlign = 'center';
+  c.textBaseline = 'top';
+  const stepX = niceStep(spanX);
+  for (let v = Math.ceil(xMin / stepX) * stepX; v <= xMax + 1e-9; v += stepX) {
+    if (Math.abs(v) < stepX * 1e-6) continue;
+    const px = sx(v);
+    c.beginPath(); c.moveTo(px, axisY - 4); c.lineTo(px, axisY + 4); c.stroke();
+    c.fillText(String(Math.round(v * 1e6) / 1e6), px, axisY + 6);
+  }
+  c.textAlign = 'right';
+  c.textBaseline = 'middle';
+  const stepY = niceStep(spanY);
+  for (let v = Math.ceil(yMin / stepY) * stepY; v <= yMax + 1e-9; v += stepY) {
+    if (Math.abs(v) < stepY * 1e-6) continue;
+    const py = sy(v);
+    c.beginPath(); c.moveTo(axisX - 4, py); c.lineTo(axisX + 4, py); c.stroke();
+    c.fillText(String(Math.round(v * 1e6) / 1e6), axisX - 6, py);
+  }
+  c.textAlign = 'left';
+  c.textBaseline = 'middle';
+  c.fillText('x', obj.x + obj.w - 10, axisY - 10);
+  c.fillText('y', axisX + 8, obj.y + 10);
+  c.restore();
+
+  c.save();
+  c.beginPath();
+  c.rect(obj.x, obj.y, obj.w, obj.h);
+  c.clip();
+
+  // Asymptotes are drawn under the curve so the curve stays the thing you read first.
+  if (obj.showAsymptotes && obj.expr) {
+    c.save();
+    c.setLineDash([6, 5]);
+    c.lineWidth = 1.5;
+    for (const xa of findVerticalAsymptotes(obj.expr, xMin, xMax)) {
+      c.strokeStyle = ASYMPTOTE_COLORS.vertical;
+      c.beginPath(); c.moveTo(sx(xa), obj.y); c.lineTo(sx(xa), obj.y + obj.h); c.stroke();
+    }
+    const ends = findEndAsymptotes(obj.expr);
+    for (const ya of ends.horizontal) {
+      c.strokeStyle = ASYMPTOTE_COLORS.horizontal;
+      c.beginPath(); c.moveTo(obj.x, sy(ya)); c.lineTo(obj.x + obj.w, sy(ya)); c.stroke();
+    }
+    for (const o of ends.oblique) {
+      c.strokeStyle = ASYMPTOTE_COLORS.oblique;
+      c.beginPath();
+      c.moveTo(sx(xMin), sy(o.m * xMin + o.p));
+      c.lineTo(sx(xMax), sy(o.m * xMax + o.p));
+      c.stroke();
+    }
+    c.restore();
+  }
+
+  // The curve, split wherever it leaves the domain or jumps across a pole.
+  if (obj.expr) {
+    c.strokeStyle = obj.color || '#e03131';
+    c.lineWidth = obj.width || 2.5;
+    c.lineJoin = 'round';
+    const steps = Math.max(200, Math.round(obj.w * 2));
+    let drawing = false;
+    let prevY = NaN;
+    c.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const x = xMin + (i / steps) * spanX;
+      const y = evalAt(obj.expr, x);
+      const offScale = !Number.isFinite(y) || y > yMax + spanY * 4 || y < yMin - spanY * 4;
+      const jumped = Number.isFinite(y) && Number.isFinite(prevY) && Math.abs(y - prevY) > spanY * 2;
+      if (offScale || jumped) { drawing = false; prevY = y; continue; }
+      const px = sx(x), py = sy(y);
+      if (drawing) c.lineTo(px, py); else { c.moveTo(px, py); drawing = true; }
+      prevY = y;
+    }
+    c.stroke();
+  }
+
+  // Markers sit on top of everything else.
+  if (obj.expr && (obj.showRoots || obj.showIntercept)) {
+    c.lineWidth = 1.5;
+    if (obj.showRoots) {
+      c.fillStyle = ASYMPTOTE_COLORS.vertical;
+      for (const r of findRoots(obj.expr, xMin, xMax)) {
+        c.beginPath(); c.arc(sx(r), sy(0), 4, 0, Math.PI * 2); c.fill();
+        c.save();
+        c.font = '600 11px -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+        c.textAlign = 'center'; c.textBaseline = 'top';
+        c.fillText('(' + fmtCoord(r) + ' ; 0)', sx(r), sy(0) + 8);
+        c.restore();
+      }
+    }
+    if (obj.showIntercept && xMin <= 0 && xMax >= 0) {
+      const y0 = evalAt(obj.expr, 0);
+      if (Number.isFinite(y0) && y0 >= yMin && y0 <= yMax) {
+        c.fillStyle = ASYMPTOTE_COLORS.horizontal;
+        c.beginPath(); c.arc(sx(0), sy(y0), 4, 0, Math.PI * 2); c.fill();
+        c.save();
+        c.font = '600 11px -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+        c.textAlign = 'left'; c.textBaseline = 'middle';
+        c.fillText('(0 ; ' + fmtCoord(y0) + ')', sx(0) + 8, sy(y0));
+        c.restore();
+      }
+    }
+  }
+
+  c.restore();
+
+  // Asymptote equations, stacked top-right, each in its asymptote's colour.
+  if (obj.showAsymptotes && obj.expr) {
+    const eqs = [];
+    for (const xa of findVerticalAsymptotes(obj.expr, xMin, xMax)) eqs.push({ t: 'AV ≡ x=' + fmtCoord(xa), col: ASYMPTOTE_COLORS.vertical });
+    const ends = findEndAsymptotes(obj.expr);
+    for (const ya of ends.horizontal) eqs.push({ t: 'AH ≡ y=' + fmtCoord(ya), col: ASYMPTOTE_COLORS.horizontal });
+    for (const o of ends.oblique) eqs.push({ t: 'AO ≡ y=' + fmtObliqueEq(o.m, o.p), col: ASYMPTOTE_COLORS.oblique });
+    c.save();
+    c.font = '600 12px -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+    c.textAlign = 'right'; c.textBaseline = 'top';
+    eqs.splice(0, eqs.length, ...eqs.filter((q, i) => eqs.findIndex(r => r.t === q.t) === i));
+    eqs.forEach((q, i) => {
+      c.fillStyle = q.col;
+      c.fillText(q.t, obj.x + obj.w - 6, obj.y + 6 + i * 16);
+    });
+    c.restore();
+  }
+
+  // Expression caption, outside the clip so it is never cut off.
+  if (obj.expr) {
+    c.save();
+    c.fillStyle = obj.color || '#e03131';
+    c.font = '600 12px -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+    c.textAlign = 'left';
+    c.textBaseline = 'bottom';
+    c.fillText('f(x) = ' + obj.expr, obj.x, obj.y - 4);
+    c.restore();
+  }
+}
+
 function insertFuncGraph(expr) {
   pushHistory();
   const center = screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
-  const w = 320, h = 320;
-  const maxX = 10;
-  const steps = 300;
-
-  const ys = new Array(steps + 1);
-  let maxAbsY = 0;
-  for (let i = 0; i <= steps; i++) {
-    const x = -maxX + (i / steps) * (2 * maxX);
-    let y;
-    try { y = evaluateMathExpression(expr, false, { x }); } catch (e) { y = NaN; }
-    if (Number.isFinite(y)) { ys[i] = y; maxAbsY = Math.max(maxAbsY, Math.abs(y)); }
-    else ys[i] = NaN;
-  }
-  const { max: maxY, step: stepY } = niceAxisScale(maxAbsY);
-
-  const groupId = uid();
-  const axesObj = {
-    id: uid(), type: 'axes2d', groupId,
+  const w = 340, h = 300;
+  const xMin = -FUNC_DEFAULT_SPAN, xMax = FUNC_DEFAULT_SPAN;
+  const { yMin, yMax } = fitYRange(expr, xMin, xMax);
+  const obj = {
+    id: uid(), type: 'funcgraph',
     x: center.x - w / 2, y: center.y - h / 2, w, h,
-    color: mathObjectColor(), tickCountX: maxX, tickCountY: maxY, tickStepY: stepY, showNumbers: true
+    expr, xMin, xMax, yMin, yMax,
+    color: '#e03131', width: 2.5,
+    showRoots: false, showIntercept: false, showAsymptotes: false
   };
-  const cx = axesObj.x + w / 2, cy = axesObj.y + h / 2;
-  const halfW = w / 2, halfH = h / 2;
-
-  const newObjects = [axesObj];
-  let current = [];
-  const flushSegment = () => {
-    if (current.length >= 2) newObjects.push({ id: uid(), type: 'stroke', tool: 'pen', points: current, color: '#e03131', width: 3, groupId });
-    current = [];
-  };
-  for (let i = 0; i <= steps; i++) {
-    const y = ys[i];
-    if (!Number.isFinite(y)) { flushSegment(); continue; }
-    const x = -maxX + (i / steps) * (2 * maxX);
-    current.push({ x: cx + (x / maxX) * halfW, y: cy - (y / maxY) * halfH });
-  }
-  flushSegment();
-
-  state.objects.push(...newObjects);
+  state.objects.push(obj);
   setTool('select');
-  state.selection = newObjects;
+  state.selection = [obj];
   render(); scheduleSave();
+  return obj;
 }
+
 
 // ---------- Scientific calculator ----------
 // Self-contained expression evaluator (tokenizer + recursive-descent parser).
@@ -1562,6 +1930,15 @@ const calcModeToggleEl = document.getElementById('calc-mode-toggle');
 const calcStarsEl = document.getElementById('calc-stars');
 const calcTabCalcEl = document.getElementById('calc-tab-calc');
 const calcTabFuncEl = document.getElementById('calc-tab-func');
+const calcFuncOptionsEl = document.getElementById('calc-func-options');
+const calcRangeEls = {
+  xMin: document.getElementById('calc-xmin'),
+  xMax: document.getElementById('calc-xmax'),
+  yMin: document.getElementById('calc-ymin'),
+  yMax: document.getElementById('calc-ymax')
+};
+// The graph the Fonction tab is currently editing. Null means the next plot creates a new one.
+let calcBoundGraph = null;
 
 const CALC_BUTTON_ROWS_CALC = [
   ['(', ')', 'C', '⌫', '%'],
@@ -1637,11 +2014,66 @@ function calcDrawFunction() {
     calcResultEl.classList.add('error');
     return;
   }
-  insertFuncGraph(expr);
-  calcInputEl.value = '';
+  // Editing a graph that is already on the board updates it in place; the panel stays open so
+  // the expression and window can be adjusted and seen without reopening anything.
+  if (calcBoundGraph && state.objects.includes(calcBoundGraph)) {
+    pushHistory();
+    calcBoundGraph.expr = expr;
+    render(); scheduleSave();
+    calcResultEl.textContent = 'Graphique mis à jour';
+    calcResultEl.classList.remove('error');
+    return;
+  }
+  const obj = insertFuncGraph(expr);
+  bindCalcToGraph(obj);
   calcResultEl.textContent = '';
   calcResultEl.classList.remove('error');
-  toggleCalc(false);
+}
+
+// Points the Fonction tab at one graph so its expression, window and overlays become the
+// panel's live contents.
+function bindCalcToGraph(obj) {
+  calcBoundGraph = obj;
+  setCalcMode('func');
+  calcInputEl.value = obj.expr || '';
+  syncCalcFuncOptions();
+}
+
+function syncCalcFuncOptions() {
+  const show = calcMode === 'func';
+  calcFuncOptionsEl.classList.toggle('hidden', !show);
+  if (!show) return;
+  const g = calcBoundGraph;
+  const vals = g ? funcGraphDefaults(g) : { xMin: -FUNC_DEFAULT_SPAN, xMax: FUNC_DEFAULT_SPAN, yMin: -FUNC_DEFAULT_SPAN, yMax: FUNC_DEFAULT_SPAN };
+  for (const key of Object.keys(calcRangeEls)) {
+    calcRangeEls[key].value = Math.round(vals[key] * 1e6) / 1e6;
+    calcRangeEls[key].disabled = !g;
+  }
+  calcFuncOptionsEl.querySelectorAll('#calc-func-toggles button').forEach((btn) => {
+    btn.disabled = !g;
+    btn.classList.toggle('active', !!(g && g[btn.dataset.flag]));
+  });
+}
+
+function applyCalcRange() {
+  const g = calcBoundGraph;
+  if (!g || !state.objects.includes(g)) return;
+  const next = {};
+  for (const key of Object.keys(calcRangeEls)) {
+    const v = parseFloat(calcRangeEls[key].value);
+    next[key] = Number.isFinite(v) ? v : funcGraphDefaults(g)[key];
+  }
+  // An inverted or empty window would render nothing at all, so it is simply refused.
+  if (next.xMax <= next.xMin || next.yMax <= next.yMin) {
+    calcResultEl.textContent = 'Bornes invalides';
+    calcResultEl.classList.add('error');
+    return;
+  }
+  pushHistory();
+  Object.assign(g, next);
+  render(); scheduleSave();
+  calcResultEl.textContent = '';
+  calcResultEl.classList.remove('error');
 }
 
 function setCalcMode(mode) {
@@ -1652,7 +2084,9 @@ function setCalcMode(mode) {
   calcInputEl.value = '';
   calcResultEl.textContent = '';
   calcResultEl.classList.remove('error');
+  if (mode !== 'func') calcBoundGraph = null;
   buildCalcButtons();
+  syncCalcFuncOptions();
   calcInputEl.focus();
 }
 
@@ -1680,6 +2114,24 @@ calcModeToggleEl.addEventListener('click', () => {
 });
 calcTabCalcEl.addEventListener('click', () => setCalcMode('calc'));
 calcTabFuncEl.addEventListener('click', () => setCalcMode('func'));
+
+for (const el of Object.values(calcRangeEls)) {
+  el.addEventListener('change', applyCalcRange);
+  el.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); applyCalcRange(); }
+  });
+}
+calcFuncOptionsEl.querySelectorAll('#calc-func-toggles button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const g = calcBoundGraph;
+    if (!g || !state.objects.includes(g)) return;
+    pushHistory();
+    g[btn.dataset.flag] = !g[btn.dataset.flag];
+    btn.classList.toggle('active', g[btn.dataset.flag]);
+    render(); scheduleSave();
+  });
+});
 
 document.querySelectorAll('#bottom-toolbar .tool-btn[data-flyout]').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1893,6 +2345,15 @@ canvas.addEventListener('pointermove', (e) => {
   customCursorEl.style.left = pos.x + 'px';
   customCursorEl.style.top = pos.y + 'px';
   customCursorEl.style.color = state.color;
+  // A pointermove on the canvas proves the pointer is over it, so this re-asserts the flag that
+  // pointerenter/pointerleave alone can leave stuck on false — an overlay passing under the
+  // pointer, a capture released off-canvas or a modal closing all swallow the matching enter.
+  // While it is stuck the native cursor is 'none' and the dot is hidden, which reads as the
+  // cursor vanishing until the pointer is taken out to a toolbar and brought back.
+  if (!mouseOverCanvas) {
+    mouseOverCanvas = true;
+    updateCustomCursorVisibility();
+  }
   updateEraserRing(e);
 });
 canvas.addEventListener('pointerenter', () => { mouseOverCanvas = true; updateCustomCursorVisibility(); });
@@ -1993,11 +2454,21 @@ function onPointerDown(e) {
   }
 
   if (effectiveTool === 'select' || effectiveTool === 'lasso') {
-    if (effectiveTool === 'select' && state.selection.length === 1) {
-      const handle = hitHandle(state.selection[0], world);
+    // Handles answer to the lasso as well: it is the default selection tool, so requiring a
+    // switch back to the rectangle tool just to resize what was lassoed would be busywork.
+    if (state.selection.length) {
+      const handle = hitSelectionHandle(world);
       if (handle) {
         pushHistory();
-        drag = { mode: 'resize', obj: state.selection[0], handle: handle.name, orig: JSON.parse(JSON.stringify(state.selection[0])) };
+        drag = state.selection.length === 1
+          ? { mode: 'resize', obj: state.selection[0], handle: handle.name, orig: JSON.parse(JSON.stringify(state.selection[0])) }
+          : {
+              mode: 'scale-group',
+              handle: handle.name,
+              objs: state.selection.slice(),
+              origs: state.selection.map(o => JSON.parse(JSON.stringify(o))),
+              origBBox: getSelectionBBox()
+            };
         return;
       }
     }
@@ -2090,6 +2561,51 @@ function hitHandle(obj, world) {
   return null;
 }
 
+function hitSelectionHandle(world) {
+  const tol = 10 / state.viewport.zoom;
+  for (const h of getSelectionHandles()) {
+    if (Math.hypot(world.x - h.x, world.y - h.y) <= tol) return h;
+  }
+  return null;
+}
+
+// Scales a whole selection about the corner opposite the one being dragged. The factor is
+// uniform on both axes: a multi-selection usually mixes strokes, shapes and text, and letting
+// the two axes diverge distorts them in ways that are tedious to undo by hand.
+function applyGroupScale(drag, world) {
+  const b = drag.origBBox;
+  const anchor = {
+    nw: { x: b.x + b.w, y: b.y + b.h },
+    ne: { x: b.x, y: b.y + b.h },
+    sw: { x: b.x + b.w, y: b.y },
+    se: { x: b.x, y: b.y }
+  }[drag.handle];
+
+  const minScale = 12 / Math.max(b.w, b.h, 1);
+  const s = Math.max(
+    minScale,
+    Math.max(Math.abs(world.x - anchor.x) / (b.w || 1), Math.abs(world.y - anchor.y) / (b.h || 1))
+  );
+  const px = (x) => anchor.x + (x - anchor.x) * s;
+  const py = (y) => anchor.y + (y - anchor.y) * s;
+
+  drag.objs.forEach((obj, i) => {
+    const o = drag.origs[i];
+    if (o.type === 'stroke') {
+      obj.points = o.points.map(p => ({ ...p, x: px(p.x), y: py(p.y) }));
+      obj.width = Math.max(0.5, o.width * s);
+    } else if (o.type === 'line' || o.type === 'arrow') {
+      obj.x1 = px(o.x1); obj.y1 = py(o.y1);
+      obj.x2 = px(o.x2); obj.y2 = py(o.y2);
+      obj.width = Math.max(0.5, o.width * s);
+    } else {
+      obj.x = px(o.x); obj.y = py(o.y);
+      obj.w = o.w * s; obj.h = o.h * s;
+      if (o.type === 'text') obj.fontSize = Math.max(8, Math.round((o.fontSize || 20) * s));
+    }
+  });
+}
+
 function onPointerMove(e) {
   const pos = getPointerPos(e);
   const world = screenToWorld(pos.x, pos.y);
@@ -2168,6 +2684,12 @@ function onPointerMove(e) {
 
   if (drag.mode === 'resize') {
     applyResize(drag.obj, drag.orig, drag.handle, world, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
+    render();
+    return;
+  }
+
+  if (drag.mode === 'scale-group') {
+    applyGroupScale(drag, world);
     render();
     return;
   }
@@ -2289,7 +2811,7 @@ function applyResize(obj, orig, handle, world, mods) {
   }
 }
 
-const ERASER_PROTECTED_TYPES = new Set(['image', 'text', 'axes2d', 'axes3d', 'trigcircle']);
+const ERASER_PROTECTED_TYPES = new Set(['image', 'text', 'axes2d', 'axes3d', 'trigcircle', 'funcgraph']);
 
 function eraseAt(world) {
   const tol = 12 / state.viewport.zoom;
@@ -2380,7 +2902,17 @@ function onPointerUp(e) {
     scheduleSave();
   } else if (drag.mode === 'erase' || drag.mode === 'erase-partial') {
     scheduleSave();
-  } else if (drag.mode === 'move' || drag.mode === 'resize' || drag.mode === 'page-drag') {
+  } else if (drag.mode === 'move' || drag.mode === 'resize' || drag.mode === 'scale-group' || drag.mode === 'page-drag') {
+    // A click (press and release without moving) on a plotted function reopens it in the
+    // calculator; a drag is just a drag and must not pop the panel open.
+    if (drag.mode === 'move' && state.selection.length === 1 && state.selection[0].type === 'funcgraph') {
+      const up = screenToWorld(getPointerPos(e).x, getPointerPos(e).y);
+      const moved = Math.hypot(up.x - drag.startWorld.x, up.y - drag.startWorld.y) > 3 / state.viewport.zoom;
+      if (!moved) {
+        toggleCalc(true);
+        bindCalcToGraph(state.selection[0]);
+      }
+    }
     scheduleSave();
   } else if (drag.mode === 'rubberband') {
     const rect = drag.rect;
@@ -2610,10 +3142,15 @@ function updateSelectionToolbarPos() {
   selToolbar.classList.add('visible');
 }
 
+// A bare repère or trig circle carries no ink of its own — its color is the board mode's — so
+// offering a palette there would promise an edit that is refused. A function graph keeps the
+// palette, which recolors its curve rather than its axes.
+const AXIS_ONLY_TYPES = new Set(['axes2d', 'axes3d', 'trigcircle']);
+
 function buildSelectionToolbar() {
   selToolbar.innerHTML = '';
   const palette = (state.selection[0] && state.selection[0].type === 'note') ? NOTE_PALETTE : PALETTE;
-  palette.forEach(c => {
+  if (!state.selection.every(o => AXIS_ONLY_TYPES.has(o.type))) palette.forEach(c => {
     const b = document.createElement('button');
     b.className = 'sel-color-btn';
     b.style.color = c;
@@ -2826,6 +3363,7 @@ function openTextEditor(obj, focus) {
   el.style.fontSize = (obj.fontSize * state.viewport.zoom) + 'px';
   el.style.color = obj.color;
   el.style.lineHeight = '1.3';
+  applyTextStyleToEl(el, obj);
   el.innerText = obj.text;
   positionOverlayEl(el, obj);
   overlay.appendChild(el);
@@ -2833,10 +3371,25 @@ function openTextEditor(obj, focus) {
   el.addEventListener('blur', () => closeEditor(true));
   el.addEventListener('keydown', (e) => {
     e.stopPropagation();
-    if (e.key === 'Escape') { e.preventDefault(); closeEditor(true); }
+    if (e.key === 'Escape') { e.preventDefault(); closeEditor(true); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'i' || k === 'u') { e.preventDefault(); toggleTextStyle(obj, k === 'i' ? 'italic' : 'underline'); applyTextStyleToEl(el, obj); }
+    }
   });
   if (focus) { setTimeout(() => el.focus(), 0); }
   render();
+}
+
+function applyTextStyleToEl(el, obj) {
+  el.style.fontStyle = obj.italic ? 'italic' : 'normal';
+  el.style.textDecoration = obj.underline ? 'underline' : 'none';
+}
+
+function toggleTextStyle(obj, prop) {
+  pushHistory();
+  obj[prop] = !obj[prop];
+  render(); scheduleSave();
 }
 
 function openNoteEditor(obj, focus) {
@@ -2879,29 +3432,148 @@ function insertImageObject(dataUrl, atWorldPos) {
   img.src = dataUrl;
 }
 
-function insertFileObject(dataUrl, name, mime, atWorldPos) {
-  pushHistory();
-  const w = 170, h = 210;
-  const center = atWorldPos || screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
-  const obj = { id: uid(), type: 'file', x: center.x - w / 2, y: center.y - h / 2, w, h, name: name || 'document.pdf', mime: mime || 'application/pdf', src: dataUrl };
-  state.objects.push(obj);
-  setTool('select');
-  state.selection = [obj];
-  render(); scheduleSave();
+// ---------- PDF page import ----------
+// A PDF used to land on the board as a card that merely opened the file in another tab, which
+// left nothing to annotate. Pages are rasterized with pdf.js and placed as ordinary image
+// objects instead, so they move, scale and export like anything else drawn on the board.
+const PDF_IMPORT_PAGE_W = 520;       // world units for one placed page
+const PDF_IMPORT_GAP = 32;
+const PDF_IMPORT_MAX_PX = 1600;      // cap on the rasterized width, to keep boards light
+const PDF_THUMB_PX = 150;
+
+if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+
+const pdfImportModal = document.getElementById('pdf-import-modal');
+const pdfImportPagesEl = document.getElementById('pdf-import-pages');
+const pdfImportStatusEl = document.getElementById('pdf-import-status');
+const pdfImportCountEl = document.getElementById('pdf-import-count');
+const pdfImportConfirmBtn = document.getElementById('btn-pdf-import-confirm');
+const pdfImportToggleAllBtn = document.getElementById('btn-pdf-import-toggle-all');
+let pdfImportSession = null;
+
+async function renderPdfPageCanvas(doc, pageNum, targetPx) {
+  const page = await doc.getPage(pageNum);
+  const base = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: targetPx / base.width });
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(viewport.width));
+  c.height = Math.max(1, Math.round(viewport.height));
+  const cctx = c.getContext('2d');
+  // PDF pages are transparent where nothing is drawn; without this they would come out as
+  // black rectangles once placed on a dark board.
+  cctx.fillStyle = '#ffffff';
+  cctx.fillRect(0, 0, c.width, c.height);
+  await page.render({ canvasContext: cctx, viewport }).promise;
+  return { canvas: c, ratio: base.height / base.width };
 }
+
+function closePdfImport() {
+  pdfImportModal.classList.add('hidden');
+  if (pdfImportSession && pdfImportSession.doc) pdfImportSession.doc.destroy();
+  pdfImportSession = null;
+  pdfImportPagesEl.innerHTML = '';
+}
+
+function updatePdfImportCount() {
+  if (!pdfImportSession) return;
+  const n = pdfImportSession.selected.size;
+  const total = pdfImportSession.total;
+  pdfImportCountEl.textContent = `${n} page${n > 1 ? 's' : ''} sélectionnée${n > 1 ? 's' : ''} sur ${total}`;
+  pdfImportConfirmBtn.disabled = n === 0;
+  pdfImportToggleAllBtn.textContent = n === total ? 'Tout désélectionner' : 'Tout sélectionner';
+}
+
+async function openPdfImportPicker(arrayBuffer, name, atWorldPos) {
+  if (!window.pdfjsLib) { flashStatus('Lecteur PDF indisponible'); return; }
+  pdfImportModal.classList.remove('hidden');
+  pdfImportPagesEl.innerHTML = '';
+  pdfImportCountEl.textContent = '';
+  pdfImportConfirmBtn.disabled = true;
+  pdfImportStatusEl.textContent = 'Lecture du document…';
+  try {
+    // getDocument takes ownership of the buffer it is given, so the original is kept aside for
+    // the full-resolution pass that runs once pages have been picked.
+    const doc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
+    pdfImportSession = { doc, buffer: arrayBuffer, pos: atWorldPos, selected: new Set(), total: doc.numPages };
+    pdfImportStatusEl.textContent = `${name} — ${doc.numPages} page${doc.numPages > 1 ? 's' : ''}. Clique pour choisir ce qui part sur le tableau.`;
+    for (let n = 1; n <= doc.numPages; n++) {
+      if (!pdfImportSession || pdfImportSession.doc !== doc) return; // closed while rendering
+      const { canvas } = await renderPdfPageCanvas(doc, n, PDF_THUMB_PX);
+      const tile = document.createElement('div');
+      tile.className = 'pdf-page-tile selected';
+      tile.appendChild(canvas);
+      const label = document.createElement('span');
+      label.className = 'pdf-page-tile-label';
+      label.textContent = `Page ${n}`;
+      tile.appendChild(label);
+      tile.addEventListener('click', () => {
+        if (pdfImportSession.selected.has(n)) pdfImportSession.selected.delete(n);
+        else pdfImportSession.selected.add(n);
+        tile.classList.toggle('selected', pdfImportSession.selected.has(n));
+        updatePdfImportCount();
+      });
+      pdfImportPagesEl.appendChild(tile);
+      pdfImportSession.selected.add(n);
+      updatePdfImportCount();
+    }
+  } catch (err) {
+    console.error('PDF import failed', err);
+    pdfImportStatusEl.textContent = "Ce document n'a pas pu être lu.";
+  }
+}
+
+async function importSelectedPdfPages() {
+  const sess = pdfImportSession;
+  if (!sess || !sess.selected.size) return;
+  const nums = [...sess.selected].sort((a, b) => a - b);
+  pdfImportConfirmBtn.disabled = true;
+  pdfImportStatusEl.textContent = 'Import en cours…';
+  const base = sess.pos || screenToWorld(wrap.clientWidth / 2, wrap.clientHeight / 2);
+  const doc = await pdfjsLib.getDocument({ data: sess.buffer.slice(0) }).promise;
+  pushHistory();
+  const created = [];
+  let cursorX = base.x;
+  for (const n of nums) {
+    const { canvas, ratio } = await renderPdfPageCanvas(doc, n, Math.min(PDF_IMPORT_PAGE_W * 2, PDF_IMPORT_MAX_PX));
+    const h = PDF_IMPORT_PAGE_W * ratio;
+    const obj = { id: uid(), type: 'image', x: cursorX, y: base.y, w: PDF_IMPORT_PAGE_W, h, src: canvas.toDataURL('image/png') };
+    state.objects.push(obj);
+    created.push(obj);
+    cursorX += PDF_IMPORT_PAGE_W + PDF_IMPORT_GAP;
+  }
+  doc.destroy();
+  closePdfImport();
+  setTool('select');
+  state.selection = created;
+  render();
+  scheduleSave();
+  flashStatus(`${created.length} page${created.length > 1 ? 's' : ''} importée${created.length > 1 ? 's' : ''}`);
+}
+
+document.getElementById('btn-pdf-import-close').addEventListener('click', closePdfImport);
+pdfImportConfirmBtn.addEventListener('click', importSelectedPdfPages);
+pdfImportToggleAllBtn.addEventListener('click', () => {
+  if (!pdfImportSession) return;
+  const all = pdfImportSession.selected.size === pdfImportSession.total;
+  pdfImportSession.selected = all ? new Set() : new Set(Array.from({ length: pdfImportSession.total }, (_, i) => i + 1));
+  pdfImportPagesEl.querySelectorAll('.pdf-page-tile').forEach((tile, i) => {
+    tile.classList.toggle('selected', pdfImportSession.selected.has(i + 1));
+  });
+  updatePdfImportCount();
+});
+pdfImportModal.addEventListener('click', (e) => { if (e.target === pdfImportModal) closePdfImport(); });
 
 imageInput.addEventListener('change', () => {
   const file = imageInput.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    if (file.type === 'application/pdf') {
-      insertFileObject(reader.result, file.name, file.type, pendingImagePos);
-    } else {
-      insertImageObject(reader.result, pendingImagePos);
-    }
-  };
-  reader.readAsDataURL(file);
+  const pos = pendingImagePos;
+  if (file.type === 'application/pdf') {
+    file.arrayBuffer().then((buf) => openPdfImportPicker(buf, file.name, pos));
+  } else {
+    const reader = new FileReader();
+    reader.onload = () => insertImageObject(reader.result, pos);
+    reader.readAsDataURL(file);
+  }
   imageInput.value = '';
 });
 
@@ -2943,6 +3615,18 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'Space') { spaceHeld = true; }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && (e.key.toLowerCase() === 'i' || e.key.toLowerCase() === 'u')) {
+    const texts = state.selection.filter(o => o.type === 'text');
+    if (texts.length) {
+      e.preventDefault();
+      const prop = e.key.toLowerCase() === 'i' ? 'italic' : 'underline';
+      const on = !texts.every(o => o[prop]);
+      pushHistory();
+      texts.forEach(o => { o[prop] = on; });
+      render(); scheduleSave();
+      return;
+    }
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelection(); return; }
@@ -3458,11 +4142,31 @@ function updateThemeBtnIcon() {
   if (opt) btnThemeEl.innerHTML = opt.icon;
 }
 
+// Switching between night and a light mode swaps white ink and black ink, so what was
+// readable on the old background stays readable on the new one.
+function invertInkColors() {
+  const swap = (c) => {
+    if (typeof c !== 'string') return c;
+    const l = c.toLowerCase();
+    return l === '#ffffff' ? '#1a1a1a' : l === '#1a1a1a' ? '#ffffff' : c;
+  };
+  let changed = false;
+  for (const o of state.objects) {
+    if (o.type === 'note' || o.type === 'image' || o.type === 'file' || !o.color) continue;
+    const n = swap(o.color);
+    if (n !== o.color) { o.color = n; changed = true; }
+  }
+  state.color = swap(state.color);
+  if (changed) scheduleSave();
+}
+
 function setColorMode(mode) {
   const meta = THEME_MODE_META[mode];
   if (!meta) return;
+  const wasDark = state.theme === 'dark';
   state.colorMode = mode;
   state.theme = meta.theme;
+  if (wasDark !== (meta.theme === 'dark')) invertInkColors();
   document.documentElement.setAttribute('data-theme', meta.dataTheme);
   updateThemeBtnIcon();
   updateGridColorCache();
@@ -3586,6 +4290,29 @@ btnPagesModeEl.addEventListener('click', (e) => {
   e.stopPropagation();
   openPageModeMenu();
 });
+
+// drawObjectGeneric() silently skips an image whose bitmap has not finished decoding, so a board
+// exported before every picture happened to be painted on screen came out with some of them
+// missing. Forcing each one to resolve first makes the export independent of what the canvas has
+// drawn so far. A source that fails resolves too: the draw skips it, but the export still ends.
+async function ensureImagesLoaded(objects) {
+  const pending = [];
+  for (const obj of objects) {
+    if (obj.type !== 'image' || !obj.src) continue;
+    let img = imageCache.get(obj.id);
+    if (!img) {
+      img = new Image();
+      img.src = obj.src;
+      imageCache.set(obj.id, img);
+    }
+    if (img.complete) continue;
+    pending.push(new Promise((resolve) => {
+      img.addEventListener('load', resolve, { once: true });
+      img.addEventListener('error', resolve, { once: true });
+    }));
+  }
+  if (pending.length) await Promise.all(pending);
+}
 
 function buildExportCanvas() {
   const bbox = getObjectsBBox(state.objects) || { x: 0, y: 0, w: 800, h: 600 };
@@ -3726,24 +4453,25 @@ async function loadSvgImage(src, opts) {
   const svgW = parseFloat(svgRoot.getAttribute('width')) || 0;
   const svgH = parseFloat(svgRoot.getAttribute('height')) || 0;
 
-  if (stripStars) {
-    const filterGroups = Array.from(svgRoot.querySelectorAll('g[filter]'))
-      .filter(g => /filter\d+_d_/.test(g.getAttribute('filter') || ''));
-    for (const g of filterGroups) {
+  // The same "<g filter=...>" drop shadow that makes a star removable is also what gives it its
+  // glow. Hidden stars are dropped outright; visible ones keep the shape but lose the filter, so
+  // the exported page shows flat sparkles instead of blurred halos.
+  const starGroups = Array.from(svgRoot.querySelectorAll('g[filter]'))
+    .filter(g => /filter\d+_d_/.test(g.getAttribute('filter') || ''))
+    .filter(g => {
       const parentClip = g.parentElement && g.parentElement.getAttribute('clip-path');
       const clipIdMatch = parentClip && parentClip.match(/url\(#([^)]+)\)/);
-      let isDecorativeStar = true;
-      if (clipIdMatch) {
-        const clipEl = doc.getElementById(clipIdMatch[1]);
-        const clipRect = clipEl && clipEl.querySelector('rect');
-        if (clipRect && svgW && svgH) {
-          const cw = parseFloat(clipRect.getAttribute('width')) || 0;
-          const ch = parseFloat(clipRect.getAttribute('height')) || 0;
-          if (cw < svgW * 0.5 || ch < svgH * 0.5) isDecorativeStar = false;
-        }
-      }
-      if (isDecorativeStar) g.remove();
-    }
+      if (!clipIdMatch) return true;
+      const clipEl = doc.getElementById(clipIdMatch[1]);
+      const clipRect = clipEl && clipEl.querySelector('rect');
+      if (!clipRect || !svgW || !svgH) return true;
+      const cw = parseFloat(clipRect.getAttribute('width')) || 0;
+      const ch = parseFloat(clipRect.getAttribute('height')) || 0;
+      return cw >= svgW * 0.5 && ch >= svgH * 0.5;
+    });
+  for (const g of starGroups) {
+    if (stripStars) g.remove();
+    else g.removeAttribute('filter');
   }
 
   // Meteor pass: mount on the hidden host so getBBox() reflects real geometry, decide what to
@@ -3855,14 +4583,19 @@ async function buildCoverImage(theme, boardName, prefs) {
   const textColor = accent || (theme === 'dark' ? '#ffffff' : '#2A2A2A');
 
   // Bottom tagline — resized to match the footer's text size exactly (same PDF_FOOTER_FONT_PX).
+  // The artwork ships with this tagline baked in, so the mask is painted whether or not the
+  // footer is shown: without it, turning the footer off would still leave the SVG's own copy
+  // printed on the cover.
   const tag = PDF_COVER_TAGLINE_BBOX;
   const tagBg = sampleColorNear(octx, 4, tag.y * ky);
   octx.fillStyle = tagBg;
   octx.fillRect(0, (tag.y - 4) * ky, c.width, (tag.h + 8) * ky);
-  octx.fillStyle = textColor;
-  octx.font = `700 ${PDF_FOOTER_FONT_PX}px Arial, "Segoe UI", sans-serif`;
-  octx.textAlign = 'center'; octx.textBaseline = 'middle';
-  octx.fillText(prefs.footerText || PDF_FOOTER_TEXT, c.width / 2, (tag.y + tag.h / 2) * ky + 1);
+  if (prefs.showFooter) {
+    octx.fillStyle = textColor;
+    octx.font = `700 ${PDF_FOOTER_FONT_PX}px Arial, "Segoe UI", sans-serif`;
+    octx.textAlign = 'center'; octx.textBaseline = 'middle';
+    octx.fillText(prefs.footerText || PDF_FOOTER_TEXT, c.width / 2, (tag.y + tag.h / 2) * ky + 1);
+  }
 
   // Title (board name) — enlarged. Mask width is measured from the actual text so long
   // board names don't get clipped by a fixed-size patch.
@@ -3984,6 +4717,7 @@ function getPdfPrefs() {
 
 async function exportPdfSinglePage() {
   const prefs = getPdfPrefs();
+  await ensureImagesLoaded(state.objects);
   const off = buildExportCanvas();
   const [coverImg, footerImg, headerImg, endImg] = await Promise.all([
     prefs.showCover ? buildCoverImage(state.theme, state.boardName, prefs) : null,
@@ -4001,6 +4735,7 @@ async function exportPdfSinglePage() {
 
 async function exportPdfPagesMode() {
   const prefs = getPdfPrefs();
+  await ensureImagesLoaded(state.objects);
   const pages = buildExportPagesFixed();
   if (!pages.length) { flashStatus('Aucune page à exporter'); return; }
   const [coverImg, footerImg, endImg] = await Promise.all([
@@ -4043,13 +4778,8 @@ function drawObjectGeneric(c, obj) {
     case 'arrow': {
       c.strokeStyle = obj.color; c.lineWidth = obj.width; c.lineCap = 'round';
       c.beginPath(); c.moveTo(obj.x1, obj.y1); c.lineTo(obj.x2, obj.y2); c.stroke();
-      const angle = Math.atan2(obj.y2 - obj.y1, obj.x2 - obj.x1);
-      const len = Math.max(10, obj.width * 3);
-      c.beginPath();
-      c.moveTo(obj.x2, obj.y2);
-      c.lineTo(obj.x2 - len * Math.cos(angle - Math.PI / 7), obj.y2 - len * Math.sin(angle - Math.PI / 7));
-      c.lineTo(obj.x2 - len * Math.cos(angle + Math.PI / 7), obj.y2 - len * Math.sin(angle + Math.PI / 7));
-      c.closePath(); c.fillStyle = obj.color; c.fill();
+      c.strokeStyle = obj.color;
+      drawArrowHead(obj.x1, obj.y1, obj.x2, obj.y2, obj.width, c);
       break;
     }
     case 'rect':
@@ -4073,13 +4803,14 @@ function drawObjectGeneric(c, obj) {
     case 'trigcircle':
       drawTrigCircle(c, obj);
       break;
+    case 'funcgraph':
+      drawFuncGraph(c, obj);
+      break;
     case 'text': {
       c.fillStyle = obj.color;
-      c.font = `${obj.fontSize}px -apple-system, "Segoe UI", Roboto, Arial, sans-serif`;
+      c.font = textFont(obj);
       c.textBaseline = 'top';
-      const lines = wrapText(c, obj.text, obj.w);
-      const lh = obj.fontSize * 1.3;
-      lines.forEach((line, i) => c.fillText(line, obj.x, obj.y + i * lh));
+      drawTextLines(c, obj, wrapText(c, obj.text, obj.w));
       break;
     }
     case 'note': {
