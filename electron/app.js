@@ -2,6 +2,13 @@
 'use strict';
 
 const PALETTE = ['#1a1a1a', '#e03131', '#FF8A1F', '#6DC82A', '#57B3FE', '#9c36b5', '#ffffff'];
+// In night mode the pen palette is shown with its first and last colors swapped: white first,
+// black last (day mode keeps black first, white last).
+function activePalette() {
+  const p = PALETTE.slice();
+  if (typeof state !== 'undefined' && state.theme === 'dark') { const t = p[0]; p[0] = p[p.length - 1]; p[p.length - 1] = t; }
+  return p;
+}
 const NOTE_PALETTE = ['#fff59d', '#ffcc80', '#a5d6a7', '#90caf9', '#ce93d8', '#ef9a9a'];
 const HANDLE_PX = 6;
 const HIT_TOL_PX = 8;
@@ -1221,7 +1228,8 @@ function mkWidthSelect() {
 function buildPenFlyout() {
   const row = document.createElement('div');
   row.className = 'flyout-row';
-  PEN_PRESETS.forEach(p => {
+  // Same night-mode ordering as the rest of the palette (white first, black last).
+  activePalette().map(color => ({ color, tool: 'pen' })).forEach(p => {
     row.appendChild(mkFlyoutBtn(mkDot(p.color), {
       active: state.tool === p.tool && state.color === p.color,
       title: 'Stylo',
@@ -1279,7 +1287,7 @@ function buildShapesFlyout() {
     }));
   });
   row.appendChild(mkSep());
-  PALETTE.forEach(c => {
+  activePalette().forEach(c => {
     row.appendChild(mkFlyoutBtn(mkDot(c), {
       active: state.color === c,
       onClick: () => { state.color = c; applyColorToSelection(c); openFlyout('shapes'); }
@@ -3149,7 +3157,7 @@ const AXIS_ONLY_TYPES = new Set(['axes2d', 'axes3d', 'trigcircle']);
 
 function buildSelectionToolbar() {
   selToolbar.innerHTML = '';
-  const palette = (state.selection[0] && state.selection[0].type === 'note') ? NOTE_PALETTE : PALETTE;
+  const palette = (state.selection[0] && state.selection[0].type === 'note') ? NOTE_PALETTE : activePalette();
   if (!state.selection.every(o => AXIS_ONLY_TYPES.has(o.type))) palette.forEach(c => {
     const b = document.createElement('button');
     b.className = 'sel-color-btn';
@@ -3585,7 +3593,7 @@ const DEFAULT_SHORTCUTS = { select: 'a', hand: 'z', pen: 'e', eraser: 'v', arrow
 // Color shortcuts (color0..colorN, one per PALETTE entry) share the same customization
 // list/UI/storage as the tool keys above — handled as a special case in the keydown dispatch
 // below, just like "calculator".
-const COLOR_NAMES = ['Noir', 'Rouge', 'Orange', 'Vert', 'Bleu', 'Violet', 'Blanc'];
+const COLOR_NAMES = ['Noir (blanc en mode nuit)', 'Rouge', 'Orange', 'Vert', 'Bleu', 'Violet', 'Blanc (noir en mode nuit)'];
 PALETTE.forEach((_, i) => {
   TOOL_LABELS[`color${i}`] = `Couleur : ${COLOR_NAMES[i] || i + 1}`;
   DEFAULT_SHORTCUTS[`color${i}`] = String(i + 1);
@@ -3638,7 +3646,7 @@ window.addEventListener('keydown', (e) => {
   const tool = toolKeyMap[k];
   if (!tool || e.ctrlKey || e.metaKey) return;
   if (tool === 'calculator') { toggleCalc(); return; }
-  if (tool.startsWith('color')) { applyCustomColor(PALETTE[parseInt(tool.slice(5), 10)]); return; }
+  if (tool.startsWith('color')) { applyCustomColor(activePalette()[parseInt(tool.slice(5), 10)]); return; }
   setTool(tool === 'select' ? state.lastSelectTool : tool);
 });
 window.addEventListener('keyup', (e) => {
