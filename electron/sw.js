@@ -1,6 +1,6 @@
 // App-shell cache: everything the whiteboard needs to run offline. Bump CACHE_NAME on any
 // deploy that changes these files so clients pick up the new versions instead of stale ones.
-const CACHE_NAME = 'electron-pwa-v3';
+const CACHE_NAME = 'electron-pwa-v4';
 const APP_SHELL = [
   './',
   './index.html',
