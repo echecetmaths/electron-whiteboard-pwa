@@ -3887,7 +3887,20 @@ document.getElementById('btn-subscribe-yearly').addEventListener('click', () => 
 
 // Fired once the in-app payment window intercepts Stripe's post-payment redirect. Auto-fills
 // and auto-verifies the email that was actually used to pay, so the user never retypes it.
-window.api.onPaymentCompleted((result) => {
+window.api.onPaymentCompleted(async (result) => {
+  // Google Play Billing (Android app): the purchase and entitlement check already happened.
+  if (result && result.native) {
+    if (result.cancelled) return;
+    if (result.ok) {
+      state.settings = await window.api.getSettings();
+      updateSubscribeButton();
+      flashStatus('Abonnement activé !');
+      openSubscribeModal('star');
+    } else {
+      subscribeStatusEl.textContent = "L'achat n'a pas abouti. Réessaie, ou vérifie ton abonnement.";
+    }
+    return;
+  }
   if (result && result.ok && result.email) {
     subscribeEmailEl.value = result.email;
     flashStatus('Paiement reçu, vérification en cours...');

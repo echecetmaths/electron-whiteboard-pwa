@@ -32,14 +32,77 @@
 
   if (IS_NATIVE) {
     // CSS rather than removing the nodes: app.js re-shows these screens by toggling .hidden, and
-    // a stylesheet can't be undone that way.
+    // a stylesheet can't be undone that way. Only the Stripe customer portal stays hidden: Play
+    // sells the subscription natively (Google Play Billing via RevenueCat) and Play manages it.
     const style = document.createElement('style');
-    style.textContent = '#subscribe-plans,#subscribe-cancel-note,#btn-manage-portal{display:none!important}';
+    style.textContent = '#btn-manage-portal{display:none!important}';
     (document.head || document.documentElement).appendChild(style);
     document.addEventListener('DOMContentLoaded', () => {
       const status = document.getElementById('subscribe-status');
-      if (status) status.textContent = "Statut : entre l'email de ton abonnement, puis clique sur Vérifier.";
+      if (status) status.textContent = "Statut : abonne-toi ci-dessous, ou entre l'email d'un abonnement existant puis clique sur Vérifier.";
+      const note = document.getElementById('subscribe-cancel-note');
+      if (note) note.textContent = 'Résiliable à tout moment depuis le Google Play Store (Paiements et abonnements).';
     });
+  }
+
+  // ---------- Google Play Billing (RevenueCat) ----------
+  // The public SDK key is meant to ship inside the app. The entitlement and package ids match the
+  // RevenueCat project "Electron" (offering "default": $rc_monthly / $rc_annual).
+  const RC_ANDROID_KEY = 'goog_ZQdzNBfghlgrgXKWaQSALQWItWE';
+  const RC_ENTITLEMENT = 'electron_pro';
+  let rcReady = null;
+  function rcConfigure() {
+    if (!IS_NATIVE) return Promise.resolve(false);
+    if (!rcReady) {
+      rcReady = (async () => {
+        const P = nativePlugin('Purchases');
+        if (!P) return false;
+        try { await P.configure({ apiKey: RC_ANDROID_KEY }); return true; } catch (e) { return false; }
+      })();
+    }
+    return rcReady;
+  }
+  // true / false = Play says the user is / is not entitled; null = could not ask (offline, no SDK).
+  async function rcEntitled() {
+    if (!(await rcConfigure())) return null;
+    try {
+      const r = await nativePlugin('Purchases').getCustomerInfo();
+      const info = (r && r.customerInfo) || r || {};
+      return !!(info.entitlements && info.entitlements.active && info.entitlements.active[RC_ENTITLEMENT]);
+    } catch (e) { return null; }
+  }
+  async function applyPlayEntitlement(settings, entitled) {
+    if (entitled === true) {
+      settings.subscriptionActive = true;
+      settings.subscriptionCheckedAt = Date.now();
+      settings.subscriptionSource = 'play';
+      await writeSettings(settings);
+    } else if (entitled === false && settings.subscriptionSource === 'play' && settings.subscriptionActive) {
+      // A subscription that came from Play and has now lapsed; email-verified ones are left alone.
+      settings.subscriptionActive = false;
+      settings.subscriptionCheckedAt = Date.now();
+      await writeSettings(settings);
+    }
+    return settings;
+  }
+  async function nativePurchase(plan) {
+    if (!(await rcConfigure())) return { ok: false, error: 'billing_unavailable' };
+    const P = nativePlugin('Purchases');
+    try {
+      const offerings = await P.getOfferings();
+      const current = offerings && offerings.current;
+      const pkgs = (current && current.availablePackages) || [];
+      const wantType = plan === 'yearly' ? 'ANNUAL' : 'MONTHLY';
+      const wantId = plan === 'yearly' ? '$rc_annual' : '$rc_monthly';
+      const pkg = pkgs.find((p) => p.packageType === wantType) || pkgs.find((p) => p.identifier === wantId);
+      if (!pkg) return { ok: false, error: 'no_package' };
+      await P.purchasePackage({ aPackage: pkg });
+      const settings = await applyPlayEntitlement(await readSettings(), await rcEntitled());
+      return { ok: !!settings.subscriptionActive, native: true };
+    } catch (e) {
+      if (e && (e.userCancelled || (e.message || '').toLowerCase().includes('cancel'))) return { ok: false, cancelled: true, native: true };
+      return { ok: false, error: 'purchase_failed', native: true };
+    }
   }
 
   // ---------- IndexedDB ----------
@@ -210,7 +273,11 @@
     },
 
     // Settings
-    getSettings: readSettings,
+    getSettings: async () => {
+      const settings = await readSettings();
+      if (!IS_NATIVE) return settings;
+      return applyPlayEntitlement(settings, await rcEntitled());
+    },
     setSettings: async (patch) => {
       const current = await readSettings();
       const merged = { ...current, ...patch };
@@ -226,6 +293,15 @@
       const settings = await readSettings();
       settings.email = trimmed;
       await writeSettings(settings);
+      if (IS_NATIVE) {
+        // A Play subscription (restored on this Google account) counts first; otherwise fall
+        // through to the email check used by web / desktop subscribers.
+        try { await nativePlugin('Purchases') && await rcConfigure() && await nativePlugin('Purchases').restorePurchases(); } catch (e) { /* offline: keep going */ }
+        if ((await rcEntitled()) === true) {
+          await applyPlayEntitlement(settings, true);
+          return { ok: true, active: true };
+        }
+      }
       try {
         const res = await fetch(`${LICENSE_WORKER_BASE}/check?email=${encodeURIComponent(trimmed)}`);
         if (!res.ok) return { ok: false, error: 'server_error' };
@@ -263,7 +339,11 @@
     // auto-detection here; the app's existing "Vérifier" flow (already built for the offline/
     // failure case) is what picks the subscription up once the user comes back.
     openPayment: async (plan) => {
-      if (IS_NATIVE) return;
+      if (IS_NATIVE) {
+        const result = await nativePurchase(plan);
+        if (paymentCompletedCb) paymentCompletedCb(result);
+        return;
+      }
       const link = plan === 'yearly' ? STRIPE_PAYMENT_LINK_YEARLY : STRIPE_PAYMENT_LINK_MONTHLY;
       const settings = await readSettings();
       const target = new URL(link);
