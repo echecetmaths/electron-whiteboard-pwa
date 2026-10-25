@@ -3791,7 +3791,9 @@ async function openSubscribeModal(context) {
     subscribeEmailEl.value = (s && s.email) || '';
     subscribeStatusEl.textContent = s && s.subscriptionCheckedAt
       ? 'Aucun abonnement actif pour cet email.'
-      : 'Statut : entre ton email et clique sur Vérifier après paiement.';
+      : (window.api.isNative
+        ? "Statut : abonne-toi ci-dessous, ou entre l'email d'un abonnement existant puis clique sur Vérifier."
+        : 'Statut : entre ton email et clique sur Vérifier après paiement.');
     showSubscribeScreen('explainer');
     return;
   }

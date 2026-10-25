@@ -235,6 +235,7 @@
 
   // ---------- window.api ----------
   window.api = {
+    isNative: IS_NATIVE,
     // Boards
     listBoards: async () => {
       const boards = await idbGetAll('boards');
